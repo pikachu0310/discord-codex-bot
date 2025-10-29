@@ -98,6 +98,9 @@ WORK_BASE_DIR/
   - 開発コンテナサポートに使用
   - 利用可能な場合はdevcontainer.jsonに基づいた実行環境を提供
   - インストール: `npm install -g @devcontainers/cli`
+- **script**（util-linux）: Codex CLIがTTYを要求する場合のフォールバックに使用
+  - `stdout is not a terminal`エラー発生時に必要
+  - 多くのLinuxディストリビューションで標準提供（util-linuxパッケージ）
 
 アプリケーション起動時にシステム要件チェックが実行され、必須コマンドが不足している場合は適切なエラーメッセージとインストール手順が表示されます。
 

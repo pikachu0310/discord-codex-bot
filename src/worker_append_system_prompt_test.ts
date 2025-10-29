@@ -13,6 +13,10 @@ class MockCodexExecutor implements CodexCommandExecutor {
     args: string[],
     _cwd: string,
     onData: (data: Uint8Array) => void,
+    _abortSignal?: AbortSignal,
+    _onProcessStart?: (childProcess: Deno.ChildProcess) => void,
+    _env?: Record<string, string>,
+    _options?: { usePty?: boolean },
   ) {
     this.capturedArgs = args;
     console.log("MockExecutor called with args:", args);

@@ -133,17 +133,17 @@ export function createMockCodexCommandExecutor(
       args: string[],
       cwd: string,
       onData: (data: Uint8Array) => void,
+      _abortSignal?: AbortSignal,
+      _onProcessStart?: (childProcess: Deno.ChildProcess) => void,
+      _env?: Record<string, string>,
+      _options?: { usePty?: boolean },
     ) {
       lastArgs = args;
       lastCwd = cwd;
       executionCount++;
 
-      // メッセージを取得（-pフラグの後の引数）
-      let message = "";
-      const pIndex = args.indexOf("-p");
-      if (pIndex !== -1 && pIndex + 1 < args.length) {
-        message = args[pIndex + 1];
-      }
+      // メッセージを取得（最後の引数がプロンプト）
+      const message = args.length > 0 ? args[args.length - 1] : "";
       const response = responses.get(message) || defaultResponse;
 
       // JSONレスポンスを作成（改行で終わる必要がある）
@@ -209,17 +209,17 @@ export function createMockStreamingCodexCommandExecutor(
       args: string[],
       cwd: string,
       onData: (data: Uint8Array) => void,
+      _abortSignal?: AbortSignal,
+      _onProcessStart?: (childProcess: Deno.ChildProcess) => void,
+      _env?: Record<string, string>,
+      _options?: { usePty?: boolean },
     ) {
       lastArgs = args;
       lastCwd = cwd;
       executionCount++;
 
-      // メッセージを取得（-pフラグの後の引数）
-      let message = "";
-      const pIndex = args.indexOf("-p");
-      if (pIndex !== -1 && pIndex + 1 < args.length) {
-        message = args[pIndex + 1];
-      }
+      // メッセージを取得（最後の引数がプロンプト）
+      const message = args.length > 0 ? args[args.length - 1] : "";
       const response = responses.get(message) || defaultResponse;
 
       if (streamingEnabled) {
@@ -317,6 +317,10 @@ export function createErrorMockCodexCommandExecutor(
       _args: string[],
       _cwd: string,
       _onData: (data: Uint8Array) => void,
+      _abortSignal?: AbortSignal,
+      _onProcessStart?: (childProcess: Deno.ChildProcess) => void,
+      _env?: Record<string, string>,
+      _options?: { usePty?: boolean },
     ) {
       return ok({
         code: exitCode,

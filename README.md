@@ -37,6 +37,8 @@ Bot。GitHubリポジトリをクローンして、Codexがコードを読み込
 - [GitHub CLI (gh)](https://cli.github.com/) - プライベートリポジトリ対応
 - [Dev Container CLI](https://github.com/devcontainers/cli) -
   `npm install -g @devcontainers/cli`
+- [script (util-linux)](https://man7.org/linux/man-pages/man1/script.1.html) -
+  Codex CLIがTTYを要求する環境でのフォールバック実行に使用
 
 ### インストール手順
 

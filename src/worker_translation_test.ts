@@ -19,6 +19,10 @@ class MockCodexCommandExecutor implements CodexCommandExecutor {
     args: string[],
     _cwd: string,
     onData: (data: Uint8Array) => void,
+    _abortSignal?: AbortSignal,
+    _onProcessStart?: (childProcess: Deno.ChildProcess) => void,
+    _env?: Record<string, string>,
+    _options?: { usePty?: boolean },
   ) {
     if (args.length > 0) {
       this.lastPrompt = args[args.length - 1];

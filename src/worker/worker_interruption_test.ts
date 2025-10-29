@@ -32,6 +32,8 @@ describe("Worker 中断イベントログ記録", () => {
         onData: (data: Uint8Array) => void,
         signal?: AbortSignal,
         onChildProcess?: (childProcess: Deno.ChildProcess) => void,
+        _env?: Record<string, string>,
+        _options?: { usePty?: boolean },
       ): Promise<
         Result<{ code: number; stderr: Uint8Array }, CodexExecutorError>
       > => {

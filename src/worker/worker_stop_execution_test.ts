@@ -16,6 +16,8 @@ class MockLongRunningExecutor implements CodexCommandExecutor {
     onData: (data: Uint8Array) => void,
     abortSignal?: AbortSignal,
     onProcessStart?: (childProcess: Deno.ChildProcess) => void,
+    _env?: Record<string, string>,
+    _options?: { usePty?: boolean },
   ): Promise<
     Result<{ code: number; stderr: Uint8Array }, CodexExecutorError>
   > {

@@ -15,6 +15,10 @@ class OutputFormatFallbackExecutor implements CodexCommandExecutor {
     args: string[],
     _cwd: string,
     _onData: (data: Uint8Array) => void,
+    _abortSignal?: AbortSignal,
+    _onProcessStart?: (childProcess: Deno.ChildProcess) => void,
+    _env?: Record<string, string>,
+    _options?: { usePty?: boolean },
   ) {
     this.attempts++;
     this.argsHistory.push([...args]);
@@ -68,6 +72,10 @@ class VerboseFallbackExecutor implements CodexCommandExecutor {
     args: string[],
     _cwd: string,
     onData: (data: Uint8Array) => void,
+    _abortSignal?: AbortSignal,
+    _onProcessStart?: (childProcess: Deno.ChildProcess) => void,
+    _env?: Record<string, string>,
+    _options?: { usePty?: boolean },
   ) {
     this.attempts++;
     this.argsHistory.push([...args]);
@@ -120,6 +128,10 @@ class MultipleFlagFallbackExecutor implements CodexCommandExecutor {
     args: string[],
     _cwd: string,
     onData: (data: Uint8Array) => void,
+    _abortSignal?: AbortSignal,
+    _onProcessStart?: (childProcess: Deno.ChildProcess) => void,
+    _env?: Record<string, string>,
+    _options?: { usePty?: boolean },
   ) {
     this.attempts++;
     this.argsHistory.push([...args]);
@@ -184,6 +196,10 @@ class DangerouslySkipPermissionsFallbackExecutor implements CodexCommandExecutor
     args: string[],
     _cwd: string,
     onData: (data: Uint8Array) => void,
+    _abortSignal?: AbortSignal,
+    _onProcessStart?: (childProcess: Deno.ChildProcess) => void,
+    _env?: Record<string, string>,
+    _options?: { usePty?: boolean },
   ) {
     this.attempts++;
     this.argsHistory.push([...args]);
@@ -209,6 +225,79 @@ class DangerouslySkipPermissionsFallbackExecutor implements CodexCommandExecutor
       })
     }\n`;
     onData(encoder.encode(sessionMessage));
+
+    const resultMessage = `${
+      JSON.stringify({
+        type: "result",
+        subtype: "success",
+        result: "ok",
+        duration_ms: 1,
+        duration_api_ms: 1,
+        is_error: false,
+        num_turns: 1,
+        session_id: "test-session-id",
+        total_cost_usd: 0,
+      })
+    }\n`;
+    onData(encoder.encode(resultMessage));
+
+    return ok({ code: 0, stderr: new Uint8Array() });
+  }
+}
+
+class TtyFallbackExecutor implements CodexCommandExecutor {
+  attempts = 0;
+  optionsHistory: Array<{ usePty?: boolean }> = [];
+
+  async executeStreaming(
+    args: string[],
+    _cwd: string,
+    onData: (data: Uint8Array) => void,
+    _abortSignal?: AbortSignal,
+    _onProcessStart?: (childProcess: Deno.ChildProcess) => void,
+    _env?: Record<string, string>,
+    options?: { usePty?: boolean },
+  ) {
+    this.attempts++;
+    this.optionsHistory.push({ usePty: options?.usePty });
+    const encoder = new TextEncoder();
+
+    if (this.attempts === 1) {
+      const stderrMessage = "Error: stdout is not a terminal\n";
+      return ok({ code: 1, stderr: encoder.encode(stderrMessage) });
+    }
+
+    const sessionMessage = `${
+      JSON.stringify({
+        type: "system",
+        subtype: "init",
+        session_id: "test-session-id",
+        apiKeySource: "env",
+        cwd: ".",
+        tools: [],
+        mcp_servers: [],
+        model: "test-model",
+        permissionMode: "default",
+      })
+    }\n`;
+    onData(encoder.encode(sessionMessage));
+
+    const assistantMessage = `${
+      JSON.stringify({
+        type: "assistant",
+        subtype: "message",
+        message: {
+          content: "result",
+          usage: {
+            input_tokens: 1,
+            output_tokens: 1,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+        },
+      })
+    }\n`;
+    onData(encoder.encode(assistantMessage));
 
     const resultMessage = `${
       JSON.stringify({
@@ -422,6 +511,74 @@ describe("Worker --dangerously-skip-permissions フラグ自動再試行", () =>
           const secondArgs = executor.argsHistory[1];
           assertEquals(firstArgs.includes("--dangerously-skip-permissions"), true);
           assertEquals(secondArgs.includes("--dangerously-skip-permissions"), false);
+        } finally {
+          await Deno.remove(repoPath, { recursive: true });
+          resetOutputFormatDetectionForTests();
+        }
+      } finally {
+        await Deno.remove(tempDir, { recursive: true });
+        resetOutputFormatDetectionForTests();
+      }
+    },
+  );
+});
+
+describe("Worker Codex CLI TTYフォールバック", () => {
+  it(
+    "Codex CLIがTTYを要求する場合にscript経由の実行へ切り替える",
+    async () => {
+      const tempDir = await Deno.makeTempDir();
+      try {
+        const workspaceManager = new WorkspaceManager(tempDir);
+        await workspaceManager.initialize();
+
+        const executor = new TtyFallbackExecutor();
+
+        resetOutputFormatDetectionForTests();
+        const repoPath = await Deno.makeTempDir();
+        const gitInit = new Deno.Command("git", { args: ["init"], cwd: repoPath });
+        await gitInit.output();
+
+        try {
+          const state: WorkerState = {
+            workerName: "test-worker",
+            threadId: "thread-id",
+            devcontainerConfig: {
+              useDevcontainer: false,
+              useFallbackDevcontainer: false,
+              hasDevcontainerFile: false,
+              hasAnthropicsFeature: false,
+              isStarted: false,
+            },
+            status: "active",
+            createdAt: new Date().toISOString(),
+            lastActiveAt: new Date().toISOString(),
+          };
+
+          const worker = new Worker(
+            state,
+            workspaceManager,
+            executor,
+            true,
+          );
+
+          const repositoryResult = parseRepository("test/repo");
+          if (repositoryResult.isOk()) {
+            await worker.setRepository(repositoryResult.value, repoPath);
+          }
+
+          worker.setUseDevcontainer(false);
+          Object.defineProperty(worker, "codexExecutor", {
+            value: executor,
+            writable: true,
+            configurable: true,
+          });
+
+          const result = await worker.processMessage("テスト");
+          assertEquals(result.isOk(), true);
+          assertEquals(executor.attempts, 2);
+          assertEquals(executor.optionsHistory[0].usePty, false);
+          assertEquals(executor.optionsHistory[1].usePty, true);
         } finally {
           await Deno.remove(repoPath, { recursive: true });
           resetOutputFormatDetectionForTests();

@@ -21,6 +21,7 @@ export interface CodexCommandExecutor {
     abortSignal?: AbortSignal,
     onProcessStart?: (childProcess: Deno.ChildProcess) => void,
     env?: Record<string, string>,
+    options?: { usePty?: boolean },
   ): Promise<Result<{ code: number; stderr: Uint8Array }, CodexExecutorError>>;
 }
 
@@ -38,6 +39,7 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
     abortSignal?: AbortSignal,
     onProcessStart?: (childProcess: Deno.ChildProcess) => void,
     env?: Record<string, string>,
+    options?: { usePty?: boolean },
   ): Promise<
     Result<{ code: number; stderr: Uint8Array }, CodexExecutorError>
   > {
@@ -59,8 +61,25 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
       // 現在の環境変数に追加の環境変数をマージ
       const commandEnv = env ? { ...Deno.env.toObject(), ...env } : undefined;
 
-      const command = new Deno.Command("codex", {
-        args,
+      const binary = options?.usePty ? "script" : "codex";
+      const commandArgs = options?.usePty
+        ? ["-q", "/dev/null", "codex", ...args]
+        : args;
+
+      if (this.verbose) {
+        const timestamp = new Date().toISOString();
+        console.log(
+          `[${timestamp}] [DefaultCodexCommandExecutor] 実行モード: ${options?.usePty ? "pty" : "standard"}`,
+        );
+        if (options?.usePty) {
+          console.log(
+            `[${timestamp}] [DefaultCodexCommandExecutor] 擬似TTYコマンド引数: ${JSON.stringify(commandArgs)}`,
+          );
+        }
+      }
+
+      const command = new Deno.Command(binary, {
+        args: commandArgs,
         cwd,
         stdout: "piped",
         stderr: "piped",
@@ -104,6 +123,13 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
           error: "実行が中断されました",
         });
       }
+      if (options?.usePty && error instanceof Deno.errors.NotFound) {
+        return err({
+          type: "STREAM_PROCESSING_ERROR",
+          error:
+            "'script' command not found. Install the util-linux package to enable pseudo-TTY fallback for the Codex CLI.",
+        });
+      }
       return err({
         type: "STREAM_PROCESSING_ERROR",
         error: (error as Error).message,
@@ -134,16 +160,28 @@ export class DevcontainerCodexExecutor implements CodexCommandExecutor {
     abortSignal?: AbortSignal,
     onProcessStart?: (childProcess: Deno.ChildProcess) => void,
     additionalEnv?: Record<string, string>,
+    options?: { usePty?: boolean },
   ): Promise<
     Result<{ code: number; stderr: Uint8Array }, CodexExecutorError>
   > {
-    const argsWithDefaults = [
-      "exec",
-      "--workspace-folder",
-      this.repositoryPath,
-      "codex",
-      ...args,
-    ];
+    const argsWithDefaults = options?.usePty
+      ? [
+        "exec",
+        "--workspace-folder",
+        this.repositoryPath,
+        "script",
+        "-q",
+        "/dev/null",
+        "codex",
+        ...args,
+      ]
+      : [
+        "exec",
+        "--workspace-folder",
+        this.repositoryPath,
+        "codex",
+        ...args,
+      ];
     // VERBOSEモードでdevcontainerコマンド詳細ログ
     if (this.verbose) {
       console.log(
@@ -153,6 +191,9 @@ export class DevcontainerCodexExecutor implements CodexCommandExecutor {
       );
       console.log(`  リポジトリパス: ${this.repositoryPath}`);
       console.log(`  引数: ${JSON.stringify(argsWithDefaults)}`);
+      console.log(
+        `  TTYモード: ${options?.usePty ? "有効 (script経由)" : "無効"}`,
+      );
       if (additionalEnv && Object.keys(additionalEnv).length > 0) {
         console.log(`  追加環境変数: ${JSON.stringify(additionalEnv)}`);
       }

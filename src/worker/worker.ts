@@ -37,6 +37,7 @@ export class Worker implements IWorker {
   private executionStartTime: number | null = null;
   private lastActivityDescription: string | null = null;
   private rateLimitManager?: RateLimitManager;
+  private requiresTtyForCodex = false;
 
   constructor(
     state: WorkerState,
@@ -234,7 +235,7 @@ export class Worker implements IWorker {
       error: "Codex execution did not run",
     });
 
-    const maxAttempts = 4;
+    const maxAttempts = 5;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const args = this.buildExecutionArgs(prompt);
 
@@ -286,6 +287,31 @@ export class Worker implements IWorker {
           this.configuration.disableDangerouslySkipPermissionsFlag();
           continue;
         }
+      }
+
+      if (
+        lastResult.isErr() &&
+        lastResult.error.type === "CODEX_CLI_REQUIRES_TTY" &&
+        !this.requiresTtyForCodex &&
+        attempt < maxAttempts - 1
+      ) {
+        this.requiresTtyForCodex = true;
+        this.logVerbose("Codex CLIがTTY出力を要求したため擬似TTYモードで再試行", {
+          stderr: lastResult.error.stderr,
+        });
+        continue;
+      }
+
+      if (
+        lastResult.isErr() &&
+        lastResult.error.type === "CODEX_CLI_REQUIRES_TTY" &&
+        this.requiresTtyForCodex
+      ) {
+        return err({
+          type: "CODEX_EXECUTION_FAILED",
+          error:
+            `Codex CLI requires a TTY environment even after enabling pseudo-terminal fallback.\n${lastResult.error.stderr}`,
+        });
       }
 
       return lastResult;
@@ -409,6 +435,7 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
         });
       },
       this.configuration.buildCodexEnv(),
+      { usePty: this.requiresTtyForCodex },
     );
 
     if (executionResult.isErr()) {
@@ -721,6 +748,23 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
       return err({
         type: "CODEX_CLI_UNSUPPORTED_OPTION",
         option: "--dangerously-skip-permissions",
+        stderr: stderrMessage,
+      });
+    }
+
+    if (
+      stderrMessage.includes("stdout is not a terminal") ||
+      stdout.includes("stdout is not a terminal")
+    ) {
+      this.logVerbose(
+        "Codex CLIがTTY環境を要求しているエラーを検出",
+        {
+          exitCode: code,
+          stderr: stderrMessage,
+        },
+      );
+      return err({
+        type: "CODEX_CLI_REQUIRES_TTY",
         stderr: stderrMessage,
       });
     }
