@@ -234,7 +234,7 @@ export class Worker implements IWorker {
       error: "Codex execution did not run",
     });
 
-    const maxAttempts = 3;
+    const maxAttempts = 4;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const args = this.buildExecutionArgs(prompt);
 
@@ -269,6 +269,21 @@ export class Worker implements IWorker {
             stderr: lastResult.error.stderr,
           });
           this.configuration.disableVerboseFlag();
+          continue;
+        }
+
+        if (
+          lastResult.error.option === "--dangerously-skip-permissions" &&
+          this.configuration.shouldUseDangerouslySkipPermissionsFlag() &&
+          attempt < maxAttempts - 1
+        ) {
+          this.logVerbose(
+            "Codex CLIが--dangerously-skip-permissionsをサポートしていないため再試行",
+            {
+              stderr: lastResult.error.stderr,
+            },
+          );
+          this.configuration.disableDangerouslySkipPermissionsFlag();
           continue;
         }
       }
@@ -684,6 +699,21 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
       return err({
         type: "CODEX_CLI_UNSUPPORTED_OPTION",
         option: "--verbose",
+        stderr: stderrMessage,
+      });
+    }
+
+    if (stderrMessage.includes("unexpected argument '--dangerously-skip-permissions'")) {
+      this.logVerbose(
+        "Codex CLIが--dangerously-skip-permissionsを認識しないエラーを検出",
+        {
+          exitCode: code,
+          stderr: stderrMessage,
+        },
+      );
+      return err({
+        type: "CODEX_CLI_UNSUPPORTED_OPTION",
+        option: "--dangerously-skip-permissions",
         stderr: stderrMessage,
       });
     }

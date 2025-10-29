@@ -4,6 +4,7 @@ let cachedHelpText: string | null = null;
 let helpDetectionAttempted = false;
 let cachedOutputFormatSupport: boolean | null = null;
 let cachedVerboseSupport: boolean | null = null;
+let cachedDangerouslySkipPermissionsSupport: boolean | null = null;
 
 function getEnvOverride(): boolean | null {
   const override = Deno.env.get("CODEX_CLI_OUTPUT_FORMAT_MODE");
@@ -94,13 +95,35 @@ export function shouldUseVerboseFlag(): boolean {
   return cachedVerboseSupport;
 }
 
+export function shouldUseDangerouslySkipPermissionsFlag(): boolean {
+  if (cachedDangerouslySkipPermissionsSupport !== null) {
+    return cachedDangerouslySkipPermissionsSupport;
+  }
+
+  const helpText = getCodexCliHelpText();
+  if (helpText !== null) {
+    cachedDangerouslySkipPermissionsSupport = helpText.includes(
+      "--dangerously-skip-permissions",
+    );
+    return cachedDangerouslySkipPermissionsSupport;
+  }
+
+  cachedDangerouslySkipPermissionsSupport = true;
+  return cachedDangerouslySkipPermissionsSupport;
+}
+
 export function resetOutputFormatDetectionForTests(): void {
   cachedHelpText = null;
   helpDetectionAttempted = false;
   cachedOutputFormatSupport = null;
   cachedVerboseSupport = null;
+  cachedDangerouslySkipPermissionsSupport = null;
 }
 
 export function recordVerboseFlagUnsupportedForTests(): void {
   cachedVerboseSupport = false;
+}
+
+export function recordDangerouslySkipPermissionsUnsupportedForTests(): void {
+  cachedDangerouslySkipPermissionsSupport = false;
 }

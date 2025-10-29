@@ -3,6 +3,7 @@ import { WorkerConfiguration } from "./worker-configuration.ts";
 import {
   recordVerboseFlagUnsupportedForTests,
   resetOutputFormatDetectionForTests,
+  recordDangerouslySkipPermissionsUnsupportedForTests,
 } from "./codex-cli-capabilities.ts";
 
 Deno.test("WorkerConfiguration - 初期設定", () => {
@@ -34,6 +35,7 @@ Deno.test("WorkerConfiguration - verboseモード設定", () => {
 });
 
 Deno.test("WorkerConfiguration - buildCodexArgs - 基本", () => {
+  resetOutputFormatDetectionForTests();
   const config = new WorkerConfiguration();
   const args = config.buildCodexArgs("テストプロンプト");
 
@@ -64,6 +66,22 @@ Deno.test(
       const args = config.buildCodexArgs("テストプロンプト");
 
       assertEquals(args.includes("--verbose"), false);
+    } finally {
+      resetOutputFormatDetectionForTests();
+    }
+  },
+);
+
+Deno.test(
+  "WorkerConfiguration - Codex CLIが--dangerously-skip-permissionsをサポートしない場合にフラグを付与しない",
+  () => {
+    try {
+      resetOutputFormatDetectionForTests();
+      recordDangerouslySkipPermissionsUnsupportedForTests();
+      const config = new WorkerConfiguration();
+      const args = config.buildCodexArgs("テストプロンプト");
+
+      assertEquals(args.includes("--dangerously-skip-permissions"), false);
     } finally {
       resetOutputFormatDetectionForTests();
     }

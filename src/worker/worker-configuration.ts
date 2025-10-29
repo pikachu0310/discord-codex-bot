@@ -2,6 +2,7 @@ import { CODEX_CLI } from "../constants.ts";
 import {
   shouldUseOutputFormatFlag,
   shouldUseVerboseFlag,
+  shouldUseDangerouslySkipPermissionsFlag,
 } from "./codex-cli-capabilities.ts";
 
 /**
@@ -15,6 +16,7 @@ export class WorkerConfiguration {
   private maxOutputTokens: number;
   private useOutputFormatFlag: boolean;
   private useCliVerboseFlag: boolean;
+  private useDangerouslySkipPermissionsFlag: boolean;
 
   constructor(
     verbose = false,
@@ -29,6 +31,8 @@ export class WorkerConfiguration {
     this.dangerouslySkipPermissions = dangerouslySkipPermissions;
     this.useOutputFormatFlag = shouldUseOutputFormatFlag();
     this.useCliVerboseFlag = shouldUseVerboseFlag();
+    this.useDangerouslySkipPermissionsFlag = this.dangerouslySkipPermissions &&
+      shouldUseDangerouslySkipPermissionsFlag();
 
     // 環境変数からトークン制限を取得、未設定の場合はデフォルト値を使用
     this.maxOutputTokens = maxOutputTokens ||
@@ -69,6 +73,9 @@ export class WorkerConfiguration {
    */
   setDangerouslySkipPermissions(skipPermissions: boolean): void {
     this.dangerouslySkipPermissions = skipPermissions;
+    this.useDangerouslySkipPermissionsFlag = skipPermissions
+      ? shouldUseDangerouslySkipPermissionsFlag()
+      : false;
   }
 
   /**
@@ -133,7 +140,7 @@ export class WorkerConfiguration {
     }
 
     // 権限チェックスキップが有効な場合のみ
-    if (this.dangerouslySkipPermissions) {
+    if (this.dangerouslySkipPermissions && this.useDangerouslySkipPermissionsFlag) {
       args.push("--dangerously-skip-permissions");
     }
 
@@ -167,10 +174,24 @@ export class WorkerConfiguration {
   }
 
   /**
+   * Codex CLIの--dangerously-skip-permissionsフラグを使用するかどうか
+   */
+  shouldUseDangerouslySkipPermissionsFlag(): boolean {
+    return this.useDangerouslySkipPermissionsFlag;
+  }
+
+  /**
    * Codex CLIが--verboseをサポートしない場合にフラグを無効化
    */
   disableVerboseFlag(): void {
     this.useCliVerboseFlag = false;
+  }
+
+  /**
+   * Codex CLIが--dangerously-skip-permissionsをサポートしない場合にフラグを無効化
+   */
+  disableDangerouslySkipPermissionsFlag(): void {
+    this.useDangerouslySkipPermissionsFlag = false;
   }
 
   /**
