@@ -40,11 +40,10 @@ Deno.test("WorkerConfiguration - buildCodexArgs - 基本", () => {
   const args = config.buildCodexArgs("テストプロンプト");
 
   assertEquals(args, [
-    "-p",
-    "テストプロンプト",
     "--output-format",
     "stream-json",
     "--dangerously-skip-permissions",
+    "テストプロンプト",
   ]);
 });
 

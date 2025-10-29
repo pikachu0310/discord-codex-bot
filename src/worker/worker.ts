@@ -304,6 +304,13 @@ export class Worker implements IWorker {
       return args;
     }
 
+    if (args.length === 0) {
+      return args;
+    }
+
+    const promptArg = args[args.length - 1];
+    const modifiedArgs = args.slice(0, -1);
+
     const planModePrompt = `
 You are in plan mode. When responding to user requests, you should:
 1. Think about the implementation steps first
@@ -314,7 +321,6 @@ You are in plan mode. When responding to user requests, you should:
 For research, analysis, or informational tasks, do not use the exit_plan_mode tool.
 `;
 
-    const modifiedArgs = [...args];
     const systemPromptIndex = modifiedArgs.findIndex((arg) =>
       arg === "--append-system-prompt" ||
       arg.startsWith("--append-system-prompt=")
@@ -335,6 +341,7 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
     }
 
     this.logVerbose("Planモード用システムプロンプト追加");
+    modifiedArgs.push(promptArg);
     return modifiedArgs;
   }
 

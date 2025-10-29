@@ -20,9 +20,8 @@ class MockCodexCommandExecutor implements CodexCommandExecutor {
     _cwd: string,
     onData: (data: Uint8Array) => void,
   ) {
-    const promptIndex = args.indexOf("-p");
-    if (promptIndex !== -1 && promptIndex + 1 < args.length) {
-      this.lastPrompt = args[promptIndex + 1];
+    if (args.length > 0) {
+      this.lastPrompt = args[args.length - 1];
     }
 
     // 各レスポンスを順番に送信（ストリーミングをシミュレート）

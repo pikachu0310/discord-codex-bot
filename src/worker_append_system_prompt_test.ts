@@ -17,21 +17,6 @@ class MockCodexExecutor implements CodexCommandExecutor {
     this.capturedArgs = args;
     console.log("MockExecutor called with args:", args);
 
-    // Codex実行時のエラーを防ぐため、verboseがない場合はエラーを返す
-    const hasVerbose = args.includes("--verbose");
-    const hasStreamJson = args.includes("--output-format") &&
-      args[args.indexOf("--output-format") + 1] === "stream-json";
-    const hasPrint = args.includes("-p");
-
-    if (hasPrint && hasStreamJson && !hasVerbose) {
-      const errorMessage =
-        "Error: When using --print, --output-format=stream-json requires --verbose\n";
-      return ok({
-        code: 1,
-        stderr: new TextEncoder().encode(errorMessage),
-      });
-    }
-
     // Mock response - 最初にsessionメッセージを送信
     const sessionMessage = `${
       JSON.stringify({

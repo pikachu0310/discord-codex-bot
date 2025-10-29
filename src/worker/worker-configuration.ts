@@ -119,10 +119,7 @@ export class WorkerConfiguration {
    * Codexコマンドの引数を構築
    */
   buildCodexArgs(prompt: string, sessionId?: string | null): string[] {
-    const args = [
-      "-p",
-      prompt,
-    ];
+    const args: string[] = [];
 
     if (this.useOutputFormatFlag) {
       args.push("--output-format", "stream-json");
@@ -148,6 +145,8 @@ export class WorkerConfiguration {
     if (this.appendSystemPrompt) {
       args.push("--append-system-prompt", this.appendSystemPrompt);
     }
+
+    args.push(prompt);
 
     return args;
   }
