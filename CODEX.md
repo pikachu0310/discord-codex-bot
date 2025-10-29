@@ -113,6 +113,9 @@ WORK_BASE_DIR/
   - Codex CLIの環境変数`CODEX_CODE_MAX_OUTPUT_TOKENS`として設定される
   - デフォルト値: 25,000（MCPツールのデフォルト制限値と同様）
   - 正の整数値のみ有効、無効な値の場合はデフォルト値を使用
+- `CODEX_CLI_OUTPUT_FORMAT_MODE`: Codex CLIの`--output-format`フラグ使用モード（オプション）
+  - `auto`（デフォルト）で`codex --help`の結果から自動判定
+  - `never`でフラグを常に無効化、`always`で常に付与
 - `GEMINI_API_KEY`: Google Gemini APIキー（オプション）
   - 設定されている場合、最初のユーザーメッセージを要約してスレッド名を自動生成
   - スレッド名のフォーマット: `${指示の要約}(${リポジトリ名})`

@@ -1,4 +1,5 @@
 import { CODEX_CLI } from "../constants.ts";
+import { shouldUseOutputFormatFlag } from "./codex-cli-capabilities.ts";
 
 /**
  * Workerの設定管理を担当するクラス
@@ -9,6 +10,7 @@ export class WorkerConfiguration {
   private translatorUrl?: string;
   private dangerouslySkipPermissions: boolean;
   private maxOutputTokens: number;
+  private useOutputFormatFlag: boolean;
 
   constructor(
     verbose = false,
@@ -21,6 +23,7 @@ export class WorkerConfiguration {
     this.appendSystemPrompt = appendSystemPrompt;
     this.translatorUrl = translatorUrl;
     this.dangerouslySkipPermissions = dangerouslySkipPermissions;
+    this.useOutputFormatFlag = shouldUseOutputFormatFlag();
 
     // 環境変数からトークン制限を取得、未設定の場合はデフォルト値を使用
     this.maxOutputTokens = maxOutputTokens ||
@@ -107,9 +110,11 @@ export class WorkerConfiguration {
     const args = [
       "-p",
       prompt,
-      "--output-format",
-      "stream-json",
     ];
+
+    if (this.useOutputFormatFlag) {
+      args.push("--output-format", "stream-json");
+    }
 
     // verboseモードが有効な場合のみ--verboseオプションを追加
     if (this.verbose) {
@@ -129,10 +134,24 @@ export class WorkerConfiguration {
 
     // append-system-promptが設定されている場合
     if (this.appendSystemPrompt) {
-      args.push(`--append-system-prompt=${this.appendSystemPrompt}`);
+      args.push("--append-system-prompt", this.appendSystemPrompt);
     }
 
     return args;
+  }
+
+  /**
+   * Codex CLIが--output-formatをサポートしない場合にフラグを無効化
+   */
+  disableOutputFormatFlag(): void {
+    this.useOutputFormatFlag = false;
+  }
+
+  /**
+   * --output-formatフラグを使用するかどうか
+   */
+  shouldUseOutputFormat(): boolean {
+    return this.useOutputFormatFlag;
   }
 
   /**

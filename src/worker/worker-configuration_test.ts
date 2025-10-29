@@ -1,5 +1,6 @@
 import { assertEquals } from "https://deno.land/std@0.211.0/assert/mod.ts";
 import { WorkerConfiguration } from "./worker-configuration.ts";
+import { resetOutputFormatDetectionForTests } from "./codex-cli-capabilities.ts";
 
 Deno.test("WorkerConfiguration - 初期設定", () => {
   const config = new WorkerConfiguration(
@@ -64,17 +65,32 @@ Deno.test("WorkerConfiguration - buildCodexArgs - 追加システムプロンプ
   const config = new WorkerConfiguration(false, "追加プロンプト");
   const args = config.buildCodexArgs("テストプロンプト");
 
-  assertEquals(args.includes("--append-system-prompt=追加プロンプト"), true);
+  const index = args.indexOf("--append-system-prompt");
+  assertEquals(index !== -1, true);
+  assertEquals(args[index + 1], "追加プロンプト");
 });
 
 Deno.test("WorkerConfiguration - buildCodexArgs - 空白を含む追加システムプロンプト", () => {
   const config = new WorkerConfiguration(false, "追加の システム プロンプト");
   const args = config.buildCodexArgs("テストプロンプト");
 
-  assertEquals(
-    args.includes("--append-system-prompt=追加の システム プロンプト"),
-    true,
-  );
+  const index = args.indexOf("--append-system-prompt");
+  assertEquals(index !== -1, true);
+  assertEquals(args[index + 1], "追加の システム プロンプト");
+});
+
+Deno.test("WorkerConfiguration - CODEX_CLI_OUTPUT_FORMAT_MODE=neverでフラグ無効", () => {
+  try {
+    Deno.env.set("CODEX_CLI_OUTPUT_FORMAT_MODE", "never");
+    resetOutputFormatDetectionForTests();
+    const config = new WorkerConfiguration();
+    const args = config.buildCodexArgs("テストプロンプト");
+
+    assertEquals(args.includes("--output-format"), false);
+  } finally {
+    Deno.env.delete("CODEX_CLI_OUTPUT_FORMAT_MODE");
+    resetOutputFormatDetectionForTests();
+  }
 });
 
 Deno.test("WorkerConfiguration - logVerbose - verboseモードでログ出力", () => {

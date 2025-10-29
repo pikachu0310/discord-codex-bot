@@ -3,6 +3,7 @@ export type WorkerError =
   | { type: "REPOSITORY_NOT_SET" }
   | { type: "CONFIGURATION_INCOMPLETE" }
   | { type: "CODEX_EXECUTION_FAILED"; error: string }
+  | { type: "CODEX_CLI_UNSUPPORTED_OPTION"; option: string; stderr: string }
   | { type: "RATE_LIMIT"; retryAt: number; timestamp: number }
   | { type: "TRANSLATION_FAILED"; error: string }
   | { type: "SESSION_LOG_FAILED"; operation: string; error: string }

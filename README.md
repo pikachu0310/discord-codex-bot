@@ -123,9 +123,15 @@ deno task start
 | `WORK_BASE_DIR`                 | 作業ディレクトリのベースパス                           | ✅   | -          |
 | `CODEX_APPEND_SYSTEM_PROMPT`   | Codex実行時に追加するシステムプロンプト               | ❌   | -          |
 | `CODEX_CODE_MAX_OUTPUT_TOKENS` | Codex CLIの最大出力トークン数                         | ❌   | `25000`    |
+| `CODEX_CLI_OUTPUT_FORMAT_MODE` | `--output-format`フラグの使用モード（auto/always/never） | ❌   | `auto`     |
 | `GEMINI_API_KEY`                | Google Gemini APIキー（スレッド名生成用）              | ❌   | -          |
 | `PLAMO_TRANSLATOR_URL`          | PLaMo-2-translate APIのURL                             | ❌   | -          |
 | `VERBOSE`                       | 詳細なデバッグログを出力（Codex実行時のコマンドなど） | ❌   | `false`    |
+
+`CODEX_CLI_OUTPUT_FORMAT_MODE` は Codex CLI の `--help` 出力から `--output-format`
+フラグの対応有無を自動検出します。Codex CLI のバージョンによってフラグが利用できない
+場合は `never` に設定することで強制的に無効化できます。古いバージョンとの互換性を
+維持したい場合は `always` を指定してください。
 
 ### 作業ディレクトリ構造
 

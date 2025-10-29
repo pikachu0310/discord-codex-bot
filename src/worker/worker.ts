@@ -229,14 +229,54 @@ export class Worker implements IWorker {
     prompt: string,
     onProgress: (content: string) => Promise<void>,
   ): Promise<Result<string, WorkerError>> {
+    let lastResult: Result<string, WorkerError> = err({
+      type: "CODEX_EXECUTION_FAILED",
+      error: "Codex execution did not run",
+    });
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const args = this.buildExecutionArgs(prompt);
+
+      this.logVerbose("Codexコマンド実行", {
+        args: args,
+        cwd: this.state.worktreePath,
+        useDevcontainer: this.state.devcontainerConfig.useDevcontainer,
+        isPlanMode: this.isPlanMode(),
+      });
+
+      this.logVerbose("ストリーミング実行開始");
+      lastResult = await this.executeCodexStreaming(args, onProgress);
+
+      if (
+        lastResult.isErr() &&
+        lastResult.error.type === "CODEX_CLI_UNSUPPORTED_OPTION" &&
+        lastResult.error.option === "--output-format" &&
+        attempt === 0
+      ) {
+        this.logVerbose("Codex CLIが--output-formatをサポートしていないため再試行", {
+          stderr: lastResult.error.stderr,
+        });
+        this.configuration.disableOutputFormatFlag();
+        continue;
+      }
+
+      return lastResult;
+    }
+
+    return lastResult;
+  }
+
+  private buildExecutionArgs(prompt: string): string[] {
     const args = this.configuration.buildCodexArgs(
       prompt,
       this.state.sessionId,
     );
 
-    // Planモードの場合は追加システムプロンプトを付加
-    if (this.isPlanMode()) {
-      const planModePrompt = `
+    if (!this.isPlanMode()) {
+      return args;
+    }
+
+    const planModePrompt = `
 You are in plan mode. When responding to user requests, you should:
 1. Think about the implementation steps first
 2. Present a clear, structured plan to the user
@@ -246,32 +286,28 @@ You are in plan mode. When responding to user requests, you should:
 For research, analysis, or informational tasks, do not use the exit_plan_mode tool.
 `;
 
-      const modifiedArgs = [...args];
-      const systemPromptIndex = modifiedArgs.findIndex((arg) =>
-        arg === "--append-system-prompt"
-      );
-      if (
-        systemPromptIndex !== -1 && systemPromptIndex < modifiedArgs.length - 1
-      ) {
-        modifiedArgs[systemPromptIndex + 1] =
-          modifiedArgs[systemPromptIndex + 1] + planModePrompt;
+    const modifiedArgs = [...args];
+    const systemPromptIndex = modifiedArgs.findIndex((arg) =>
+      arg === "--append-system-prompt" ||
+      arg.startsWith("--append-system-prompt=")
+    );
+
+    if (systemPromptIndex !== -1) {
+      const current = modifiedArgs[systemPromptIndex];
+      if (current === "--append-system-prompt" &&
+        systemPromptIndex < modifiedArgs.length - 1) {
+        modifiedArgs[systemPromptIndex + 1] += planModePrompt;
+      } else if (current.startsWith("--append-system-prompt=")) {
+        modifiedArgs[systemPromptIndex] = `${current}${planModePrompt}`;
       } else {
         modifiedArgs.push("--append-system-prompt", planModePrompt);
       }
-
-      this.logVerbose("Planモード用システムプロンプト追加");
-      args.splice(0, args.length, ...modifiedArgs);
+    } else {
+      modifiedArgs.push("--append-system-prompt", planModePrompt);
     }
 
-    this.logVerbose("Codexコマンド実行", {
-      args: args,
-      cwd: this.state.worktreePath,
-      useDevcontainer: this.state.devcontainerConfig.useDevcontainer,
-      isPlanMode: this.isPlanMode(),
-    });
-
-    this.logVerbose("ストリーミング実行開始");
-    return await this.executeCodexStreaming(args, onProgress);
+    this.logVerbose("Planモード用システムプロンプト追加");
+    return modifiedArgs;
   }
 
   private async executeCodexStreaming(
@@ -614,6 +650,18 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
     stdout: string,
   ): Result<never, WorkerError> {
     const stderrMessage = new TextDecoder().decode(stderr);
+
+    if (stderrMessage.includes("unexpected argument '--output-format'")) {
+      this.logVerbose("Codex CLIが--output-formatを認識しないエラーを検出", {
+        exitCode: code,
+        stderr: stderrMessage,
+      });
+      return err({
+        type: "CODEX_CLI_UNSUPPORTED_OPTION",
+        option: "--output-format",
+        stderr: stderrMessage,
+      });
+    }
 
     // VERBOSEモードで詳細ログ出力
     if (this.configuration.isVerbose()) {
