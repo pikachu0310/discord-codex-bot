@@ -1,6 +1,9 @@
 import { assertEquals } from "https://deno.land/std@0.211.0/assert/mod.ts";
 import { WorkerConfiguration } from "./worker-configuration.ts";
-import { resetOutputFormatDetectionForTests } from "./codex-cli-capabilities.ts";
+import {
+  recordVerboseFlagUnsupportedForTests,
+  resetOutputFormatDetectionForTests,
+} from "./codex-cli-capabilities.ts";
 
 Deno.test("WorkerConfiguration - 初期設定", () => {
   const config = new WorkerConfiguration(
@@ -44,11 +47,28 @@ Deno.test("WorkerConfiguration - buildCodexArgs - 基本", () => {
 });
 
 Deno.test("WorkerConfiguration - buildCodexArgs - verboseモード", () => {
+  resetOutputFormatDetectionForTests();
   const config = new WorkerConfiguration(true);
   const args = config.buildCodexArgs("テストプロンプト");
 
   assertEquals(args.includes("--verbose"), true);
 });
+
+Deno.test(
+  "WorkerConfiguration - Codex CLIが--verboseをサポートしない場合にフラグを付与しない",
+  () => {
+    try {
+      resetOutputFormatDetectionForTests();
+      recordVerboseFlagUnsupportedForTests();
+      const config = new WorkerConfiguration(true);
+      const args = config.buildCodexArgs("テストプロンプト");
+
+      assertEquals(args.includes("--verbose"), false);
+    } finally {
+      resetOutputFormatDetectionForTests();
+    }
+  },
+);
 
 Deno.test.ignore(
   "WorkerConfiguration - buildCodexArgs - セッション継続",

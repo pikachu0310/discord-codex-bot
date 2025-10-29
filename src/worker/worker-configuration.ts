@@ -1,5 +1,8 @@
 import { CODEX_CLI } from "../constants.ts";
-import { shouldUseOutputFormatFlag } from "./codex-cli-capabilities.ts";
+import {
+  shouldUseOutputFormatFlag,
+  shouldUseVerboseFlag,
+} from "./codex-cli-capabilities.ts";
 
 /**
  * Workerの設定管理を担当するクラス
@@ -11,6 +14,7 @@ export class WorkerConfiguration {
   private dangerouslySkipPermissions: boolean;
   private maxOutputTokens: number;
   private useOutputFormatFlag: boolean;
+  private useCliVerboseFlag: boolean;
 
   constructor(
     verbose = false,
@@ -24,6 +28,7 @@ export class WorkerConfiguration {
     this.translatorUrl = translatorUrl;
     this.dangerouslySkipPermissions = dangerouslySkipPermissions;
     this.useOutputFormatFlag = shouldUseOutputFormatFlag();
+    this.useCliVerboseFlag = shouldUseVerboseFlag();
 
     // 環境変数からトークン制限を取得、未設定の場合はデフォルト値を使用
     this.maxOutputTokens = maxOutputTokens ||
@@ -116,8 +121,8 @@ export class WorkerConfiguration {
       args.push("--output-format", "stream-json");
     }
 
-    // verboseモードが有効な場合のみ--verboseオプションを追加
-    if (this.verbose) {
+    // verboseモードかつCodex CLIがサポートしている場合のみ--verboseを追加
+    if (this.verbose && this.useCliVerboseFlag) {
       args.push("--verbose");
     }
 
@@ -152,6 +157,20 @@ export class WorkerConfiguration {
    */
   shouldUseOutputFormat(): boolean {
     return this.useOutputFormatFlag;
+  }
+
+  /**
+   * Codex CLIの--verboseフラグを使用するかどうか
+   */
+  shouldUseCliVerboseFlag(): boolean {
+    return this.useCliVerboseFlag;
+  }
+
+  /**
+   * Codex CLIが--verboseをサポートしない場合にフラグを無効化
+   */
+  disableVerboseFlag(): void {
+    this.useCliVerboseFlag = false;
   }
 
   /**

@@ -234,7 +234,8 @@ export class Worker implements IWorker {
       error: "Codex execution did not run",
     });
 
-    for (let attempt = 0; attempt < 2; attempt++) {
+    const maxAttempts = 3;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const args = this.buildExecutionArgs(prompt);
 
       this.logVerbose("Codexコマンド実行", {
@@ -247,17 +248,29 @@ export class Worker implements IWorker {
       this.logVerbose("ストリーミング実行開始");
       lastResult = await this.executeCodexStreaming(args, onProgress);
 
-      if (
-        lastResult.isErr() &&
-        lastResult.error.type === "CODEX_CLI_UNSUPPORTED_OPTION" &&
-        lastResult.error.option === "--output-format" &&
-        attempt === 0
-      ) {
-        this.logVerbose("Codex CLIが--output-formatをサポートしていないため再試行", {
-          stderr: lastResult.error.stderr,
-        });
-        this.configuration.disableOutputFormatFlag();
-        continue;
+      if (lastResult.isErr() && lastResult.error.type === "CODEX_CLI_UNSUPPORTED_OPTION") {
+        if (
+          lastResult.error.option === "--output-format" &&
+          attempt < maxAttempts - 1
+        ) {
+          this.logVerbose("Codex CLIが--output-formatをサポートしていないため再試行", {
+            stderr: lastResult.error.stderr,
+          });
+          this.configuration.disableOutputFormatFlag();
+          continue;
+        }
+
+        if (
+          lastResult.error.option === "--verbose" &&
+          this.configuration.shouldUseCliVerboseFlag() &&
+          attempt < maxAttempts - 1
+        ) {
+          this.logVerbose("Codex CLIが--verboseをサポートしていないため再試行", {
+            stderr: lastResult.error.stderr,
+          });
+          this.configuration.disableVerboseFlag();
+          continue;
+        }
       }
 
       return lastResult;
@@ -659,6 +672,18 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
       return err({
         type: "CODEX_CLI_UNSUPPORTED_OPTION",
         option: "--output-format",
+        stderr: stderrMessage,
+      });
+    }
+
+    if (stderrMessage.includes("unexpected argument '--verbose'")) {
+      this.logVerbose("Codex CLIが--verboseを認識しないエラーを検出", {
+        exitCode: code,
+        stderr: stderrMessage,
+      });
+      return err({
+        type: "CODEX_CLI_UNSUPPORTED_OPTION",
+        option: "--verbose",
         stderr: stderrMessage,
       });
     }
