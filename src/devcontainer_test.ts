@@ -31,7 +31,7 @@ Deno.test("devcontainer設定のチェック機能", async (t) => {
       name: "test",
       image: "mcr.microsoft.com/devcontainers/typescript-node:1-20-bullseye",
       features: {
-        "ghcr.io/anthropics/devcontainer-features/claude-cli:latest": {},
+        "ghcr.io/anthropics/devcontainer-features/codex-cli:latest": {},
       },
     };
 
@@ -63,7 +63,7 @@ Deno.test("devcontainer設定のチェック機能", async (t) => {
       name: "test-root",
       image: "node:20",
       features: {
-        "anthropics/devcontainer-features/claude-cli": "latest",
+        "anthropics/devcontainer-features/codex-cli": "latest",
       },
     };
 

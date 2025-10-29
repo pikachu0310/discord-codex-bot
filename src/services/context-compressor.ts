@@ -1,5 +1,5 @@
 /**
- * Context compression service for managing Claude conversation history
+ * Context compression service for managing Codex conversation history
  */
 
 import { CONTEXT_COMPRESSION } from "../constants.ts";

@@ -52,10 +52,10 @@ export const PROCESS = {
   TERMINATION_TIMEOUT_MS: 5000, // プロセス終了を待つタイムアウト時間（5秒）
 } as const;
 
-// Claude CLI関連の定数
-export const CLAUDE_CLI = {
-  // Claude CLIのデフォルト最大出力トークン数
-  // Claude Code公式ドキュメントには明示的なデフォルト値の記載がないため、
+// Codex CLI関連の定数
+export const CODEX_CLI = {
+  // Codex CLIのデフォルト最大出力トークン数
+  // Codex Code公式ドキュメントには明示的なデフォルト値の記載がないため、
   // MCPツールのデフォルト制限値（25,000）を参考にした適切な値を設定
   DEFAULT_MAX_OUTPUT_TOKENS: 25000,
 } as const;
@@ -63,7 +63,7 @@ export const CLAUDE_CLI = {
 // コンテキスト圧縮関連の定数
 export const CONTEXT_COMPRESSION = {
   // 自動圧縮を開始するトークン数の閾値
-  AUTO_COMPRESS_THRESHOLD: 180000, // Claude 3.5の200K上限の90%
+  AUTO_COMPRESS_THRESHOLD: 180000, // Codex 3.5の200K上限の90%
   // 圧縮後の目標トークン数
   COMPRESSION_TARGET_TOKENS: 100000, // 圧縮後は100Kトークン程度に削減
   // 圧縮時に保持する最新メッセージ数

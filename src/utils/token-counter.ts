@@ -1,5 +1,5 @@
 /**
- * Token counting utility for Claude context management
+ * Token counting utility for Codex context management
  */
 
 /**
@@ -12,7 +12,7 @@ export function estimateTokenCount(text: string): number {
   const normalizedText = text.trim().replace(/\s+/g, " ");
 
   // Use 4 characters per token as a rough estimate
-  // This is based on OpenAI's tokenization patterns and Claude likely uses similar
+  // This is based on OpenAI's tokenization patterns and Codex likely uses similar
   return Math.ceil(normalizedText.length / 4);
 }
 
@@ -24,7 +24,7 @@ export function estimateTokenCountFromArray(texts: string[]): number {
 }
 
 /**
- * Estimates token count from a Claude session JSONL content
+ * Estimates token count from a Codex session JSONL content
  */
 export function estimateTokenCountFromSession(sessionContent: string): number {
   const lines = sessionContent.split("\n").filter((line) => line.trim());

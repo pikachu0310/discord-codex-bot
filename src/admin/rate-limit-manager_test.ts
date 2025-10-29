@@ -143,7 +143,7 @@ Deno.test("RateLimitManager - レートリミットメッセージの作成", ()
 
   const message = rateLimitManager.createRateLimitMessage(threadId, timestamp);
 
-  assert(message.includes("Claude Codeのレートリミットに達しました"));
+  assert(message.includes("Codex Codeのレートリミットに達しました"));
   assert(message.includes("制限解除予定時刻"));
   assert(
     message.includes(

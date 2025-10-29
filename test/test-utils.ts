@@ -2,7 +2,7 @@ import { WorkerState, WorkspaceManager } from "../src/workspace/workspace.ts";
 import { Admin } from "../src/admin/admin.ts";
 import { Worker } from "../src/worker/worker.ts";
 import { IWorker } from "../src/worker/types.ts";
-import { ClaudeCommandExecutor } from "../src/worker/claude-executor.ts";
+import { CodexCommandExecutor } from "../src/worker/codex-executor.ts";
 import { ok } from "neverthrow";
 import { GitRepository } from "../src/git-utils.ts";
 import {
@@ -88,7 +88,7 @@ export function createTestWorkerState(
 export async function createTestWorker(
   name: string,
   workspaceManager: WorkspaceManager,
-  executor?: ClaudeCommandExecutor,
+  executor?: CodexCommandExecutor,
   verbose = false,
   threadId = "test-thread-id",
 ): Promise<Worker> {
@@ -96,7 +96,7 @@ export async function createTestWorker(
   const worker = new Worker(
     state,
     workspaceManager,
-    executor || createMockClaudeCommandExecutor(),
+    executor || createMockCodexCommandExecutor(),
     verbose,
     undefined,
   );
@@ -113,11 +113,11 @@ export function assertWorkerValid(worker: IWorker | null): void {
 }
 
 /**
- * モックClaudeCommandExecutorを作成
+ * モックCodexCommandExecutorを作成
  */
-export function createMockClaudeCommandExecutor(
+export function createMockCodexCommandExecutor(
   defaultResponse = "モックレスポンス",
-): ClaudeCommandExecutor & {
+): CodexCommandExecutor & {
   setResponse: (message: string, response: string) => void;
   lastArgs?: string[];
   lastCwd?: string;
@@ -128,7 +128,7 @@ export function createMockClaudeCommandExecutor(
   let lastCwd: string | undefined;
   let executionCount = 0;
 
-  const executor: ClaudeCommandExecutor = {
+  const executor: CodexCommandExecutor = {
     async executeStreaming(
       args: string[],
       cwd: string,
@@ -184,12 +184,12 @@ export function createMockClaudeCommandExecutor(
 }
 
 /**
- * ストリーミング対応のモックClaudeCommandExecutorを作成
+ * ストリーミング対応のモックCodexCommandExecutorを作成
  */
-export function createMockStreamingClaudeCommandExecutor(
+export function createMockStreamingCodexCommandExecutor(
   defaultResponse = "モックレスポンス",
   options: { streamingEnabled?: boolean; streamingDelay?: number } = {},
-): ClaudeCommandExecutor & {
+): CodexCommandExecutor & {
   setResponse: (message: string, response: string) => void;
   lastArgs?: string[];
   lastCwd?: string;
@@ -204,7 +204,7 @@ export function createMockStreamingClaudeCommandExecutor(
   const streamingEnabled = options.streamingEnabled ?? true;
   const streamingDelay = options.streamingDelay ?? 10;
 
-  const executor: ClaudeCommandExecutor = {
+  const executor: CodexCommandExecutor = {
     async executeStreaming(
       args: string[],
       cwd: string,
@@ -250,7 +250,7 @@ export function createMockStreamingClaudeCommandExecutor(
                 id: "msg_mock",
                 type: "message",
                 role: "assistant",
-                model: "claude-3-opus",
+                model: "codex-3-opus",
                 content: [{ type: "text", text: response }],
                 stop_reason: "end_turn",
               },
@@ -306,12 +306,12 @@ export function createMockStreamingClaudeCommandExecutor(
 }
 
 /**
- * エラーを返すモックClaudeCommandExecutorを作成
+ * エラーを返すモックCodexCommandExecutorを作成
  */
-export function createErrorMockClaudeCommandExecutor(
+export function createErrorMockCodexCommandExecutor(
   errorMessage = "Command failed",
   exitCode = 1,
-): ClaudeCommandExecutor {
+): CodexCommandExecutor {
   return {
     async executeStreaming(
       _args: string[],
@@ -443,11 +443,11 @@ export async function waitFor(
 }
 
 /**
- * Claude CLIが利用可能かチェックする
+ * Codex CLIが利用可能かチェックする
  */
-export async function isClaudeCliAvailable(): Promise<boolean> {
+export async function isCodexCliAvailable(): Promise<boolean> {
   try {
-    const process = new Deno.Command("claude", {
+    const process = new Deno.Command("codex", {
       args: ["--version"],
       stdout: "piped",
       stderr: "piped",

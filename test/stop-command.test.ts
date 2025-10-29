@@ -9,13 +9,13 @@ Deno.test("/stopコマンドが正しく定義されている", async () => {
     // スラッシュコマンド定義の確認
     const slashCommandDefinition = {
       name: "stop",
-      description: "実行中のClaude Codeを中断します",
+      description: "実行中のCodex Codeを中断します",
     };
 
     assertEquals(slashCommandDefinition.name, "stop");
     assertEquals(
       slashCommandDefinition.description,
-      "実行中のClaude Codeを中断します",
+      "実行中のCodex Codeを中断します",
     );
   } finally {
     await Deno.remove(tempDir, { recursive: true });

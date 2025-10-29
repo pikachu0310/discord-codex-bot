@@ -48,7 +48,7 @@ Deno.test("DevcontainerManager - devcontainer.jsonが存在する場合", async 
         name: "test",
         image: "node:20",
         features: {
-          "ghcr.io/anthropics/devcontainer-features/claude-cli:latest": {},
+          "ghcr.io/anthropics/devcontainer-features/codex-cli:latest": {},
         },
       };
 
@@ -65,7 +65,7 @@ Deno.test("DevcontainerManager - devcontainer.jsonが存在する場合", async 
       assertEquals(result.hasDevcontainer, true);
       // devcontainer CLIがインストールされていない環境でのテストなので、
       // CLIが見つからないメッセージが返されることを期待
-      if (!result.message.includes("devcontainer内でClaudeを実行しますか")) {
+      if (!result.message.includes("devcontainer内でCodexを実行しますか")) {
         assertStringIncludes(
           result.message,
           "devcontainer CLIがインストールされていません",

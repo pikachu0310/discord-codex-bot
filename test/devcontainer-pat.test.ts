@@ -1,7 +1,7 @@
 import { assertEquals, assertExists } from "std/assert/mod.ts";
 import { afterEach, beforeEach, describe, it } from "std/testing/bdd.ts";
 import { Worker } from "../src/worker/worker.ts";
-import { DevcontainerClaudeExecutor } from "../src/worker/claude-executor.ts";
+import { DevcontainerCodexExecutor } from "../src/worker/codex-executor.ts";
 import {
   RepositoryPatInfo,
   WorkerState,
@@ -29,9 +29,9 @@ describe("Devcontainer PAT環境変数設定", () => {
     }
   });
 
-  it("DevcontainerClaudeExecutorがPATを環境変数として設定する", async () => {
+  it("DevcontainerCodexExecutorがPATを環境変数として設定する", async () => {
     const ghToken = "ghp_test1234567890abcdefghijklmnopqrstu";
-    const executor = new DevcontainerClaudeExecutor(
+    const executor = new DevcontainerCodexExecutor(
       "/test/path",
       false,
       ghToken,
@@ -90,7 +90,7 @@ describe("Devcontainer PAT環境変数設定", () => {
     try {
       await worker.setRepository(repository, repoPath);
 
-      // DevcontainerClaudeExecutorが正しく設定されていることを確認
+      // DevcontainerCodexExecutorが正しく設定されていることを確認
       assertEquals(worker.isUsingDevcontainer(), true);
     } finally {
       await Deno.remove(repoPath, { recursive: true });
@@ -137,7 +137,7 @@ describe("Devcontainer PAT環境変数設定", () => {
     try {
       await worker.setRepository(repository, repoPath);
 
-      // DevcontainerClaudeExecutorが正しく設定されていることを確認
+      // DevcontainerCodexExecutorが正しく設定されていることを確認
       assertEquals(worker.isUsingDevcontainer(), true);
     } finally {
       await Deno.remove(repoPath, { recursive: true });

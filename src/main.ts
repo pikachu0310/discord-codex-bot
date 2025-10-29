@@ -37,7 +37,7 @@ if (systemCheckResult.isErr()) {
 
   if (error.type === "REQUIRED_COMMAND_MISSING") {
     // エラーの場合でも、各コマンドの状態を確認するために再度チェック（結果表示用）
-    const allCommands = ["git", "claude", "gh", "devcontainer"];
+    const allCommands = ["git", "codex", "gh", "devcontainer"];
     const displayResults: CommandStatus[] = [];
 
     for (const cmd of allCommands) {
@@ -110,7 +110,7 @@ const admin = Admin.fromState(
   adminState,
   workspaceManager,
   env.VERBOSE,
-  env.CLAUDE_APPEND_SYSTEM_PROMPT,
+  env.CODEX_APPEND_SYSTEM_PROMPT,
   env.PLAMO_TRANSLATOR_URL,
 );
 
@@ -190,11 +190,11 @@ const commands = [
     .toJSON(),
   new SlashCommandBuilder()
     .setName("stop")
-    .setDescription("実行中のClaude Codeを中断します")
+    .setDescription("実行中のCodex Codeを中断します")
     .toJSON(),
   new SlashCommandBuilder()
     .setName("plan")
-    .setDescription("Claude Codeをプランモードに設定します")
+    .setDescription("Codex Codeをプランモードに設定します")
     .toJSON(),
   new SlashCommandBuilder()
     .setName("close")
@@ -451,14 +451,14 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
 
           // 失敗時の処理
           await progressHandler.onFailure(
-            `${startResult.message}\n\n通常環境でClaude実行を継続します。`,
+            `${startResult.message}\n\n通常環境でCodex実行を継続します。`,
             [],
           );
 
           // ユーザーに通知
           if (interaction.channel && "send" in interaction.channel) {
             await interaction.channel.send(
-              "devcontainerの起動に失敗しました。通常環境でClaude実行を継続します。",
+              "devcontainerの起動に失敗しました。通常環境でCodex実行を継続します。",
             );
           }
         }
@@ -495,11 +495,11 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
         );
 
         if (startResult.success) {
-          // fallback devcontainer起動成功後、WorkerにDevcontainerClaudeExecutorへの切り替えを指示
+          // fallback devcontainer起動成功後、WorkerにDevcontainerCodexExecutorへの切り替えを指示
           const workerResult = admin.getWorker(threadId);
           if (workerResult.isOk()) {
-            // WorkerのdevcontainerConfigを更新してDevcontainerClaudeExecutorに切り替える
-            await workerResult.value.updateClaudeExecutorForDevcontainer();
+            // WorkerのdevcontainerConfigを更新してDevcontainerCodexExecutorに切り替える
+            await workerResult.value.updateCodexExecutorForDevcontainer();
           }
 
           // 成功メッセージとログの表示
@@ -508,7 +508,7 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
           // ユーザーに通知
           if (interaction.channel && "send" in interaction.channel) {
             await interaction.channel.send(
-              "fallback devcontainerの起動が完了しました！Claude実行環境が準備完了です。",
+              "fallback devcontainerの起動が完了しました！Codex実行環境が準備完了です。",
             );
           }
         } else {
@@ -521,7 +521,7 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
           // ユーザーに通知
           if (interaction.channel && "send" in interaction.channel) {
             await interaction.channel.send(
-              "fallback devcontainerの起動に失敗しました。通常環境でClaude実行を継続します。",
+              "fallback devcontainerの起動に失敗しました。通常環境でCodex実行を継続します。",
             );
           }
         }
@@ -815,7 +815,7 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
       }
 
       await interaction.editReply(
-        "✅ Claude Codeの実行を中断しました。\n\n💡 新しい指示を送信して作業を続けることができます。",
+        "✅ Codex Codeの実行を中断しました。\n\n💡 新しい指示を送信して作業を続けることができます。",
       );
     } catch (error) {
       console.error("/stopコマンドエラー:", error);

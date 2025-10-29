@@ -544,7 +544,7 @@ export class Admin implements IAdmin {
   createInitialMessage(_threadId: string): DiscordMessage {
     return {
       content:
-        "Claude Code Bot スレッドが開始されました。\n\n/start コマンドでリポジトリを指定してください。\n\n**リポジトリ設定後の流れ:**\n1. devcontainer.jsonの存在確認\n2. devcontainer利用の可否選択\n3. Claude実行環境の準備",
+        "Codex Code Bot スレッドが開始されました。\n\n/start コマンドでリポジトリを指定してください。\n\n**リポジトリ設定後の流れ:**\n1. devcontainer.jsonの存在確認\n2. devcontainer利用の可否選択\n3. Codex実行環境の準備",
       components: [],
     };
   }
@@ -636,10 +636,10 @@ export class Admin implements IAdmin {
   }
 
   /**
-   * 実行中のClaude Codeを中断する
+   * 実行中のCodex Codeを中断する
    */
   async stopExecution(threadId: string): Promise<Result<void, AdminError>> {
-    this.logVerbose("Claude Code実行中断処理開始", { threadId });
+    this.logVerbose("Codex Code実行中断処理開始", { threadId });
 
     const worker = this.workerManager.getWorker(threadId);
     if (!worker) {
@@ -655,7 +655,7 @@ export class Admin implements IAdmin {
       const success = await worker.stopExecution();
 
       if (success) {
-        this.logVerbose("Claude Code実行中断成功", { threadId });
+        this.logVerbose("Codex Code実行中断成功", { threadId });
 
         // 監査ログに中断イベントを記録
         await this.logAuditEntry(threadId, "worker_stopped", {
@@ -665,14 +665,14 @@ export class Admin implements IAdmin {
 
         return ok(undefined);
       } else {
-        this.logVerbose("Claude Code実行中断失敗 - 実行中のプロセスなし", {
+        this.logVerbose("Codex Code実行中断失敗 - 実行中のプロセスなし", {
           threadId,
         });
         // プロセスが実行中でない場合も成功として扱う
         return ok(undefined);
       }
     } catch (error) {
-      this.logVerbose("Claude Code実行中断中にエラー発生", {
+      this.logVerbose("Codex Code実行中断中にエラー発生", {
         threadId,
         error: error instanceof Error ? error.message : String(error),
       });

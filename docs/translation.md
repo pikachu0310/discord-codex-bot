@@ -2,8 +2,8 @@
 
 ## 概要
 
-日本語でClaude
-Codeに指示を送ると、PLaMo-2-translateを使用して自動的に英語に翻訳してからClaude
+日本語でCodex
+Codeに指示を送ると、PLaMo-2-translateを使用して自動的に英語に翻訳してからCodex
 Codeに渡す機能です。これにより、より効果的なコーディング指示が可能になります。
 
 ## セットアップ

@@ -1,4 +1,4 @@
-import { CLAUDE_CLI } from "../constants.ts";
+import { CODEX_CLI } from "../constants.ts";
 
 /**
  * Workerの設定管理を担当するクラス
@@ -25,7 +25,7 @@ export class WorkerConfiguration {
     // 環境変数からトークン制限を取得、未設定の場合はデフォルト値を使用
     this.maxOutputTokens = maxOutputTokens ||
       this.getMaxOutputTokensFromEnv() ||
-      CLAUDE_CLI.DEFAULT_MAX_OUTPUT_TOKENS;
+      CODEX_CLI.DEFAULT_MAX_OUTPUT_TOKENS;
   }
 
   /**
@@ -74,7 +74,7 @@ export class WorkerConfiguration {
    * 環境変数から最大出力トークン数を取得
    */
   private getMaxOutputTokensFromEnv(): number | null {
-    const envValue = Deno.env.get("CLAUDE_CODE_MAX_OUTPUT_TOKENS");
+    const envValue = Deno.env.get("CODEX_CODE_MAX_OUTPUT_TOKENS");
     if (envValue) {
       const parsed = parseInt(envValue, 10);
       if (!isNaN(parsed) && parsed > 0) {
@@ -101,9 +101,9 @@ export class WorkerConfiguration {
   }
 
   /**
-   * Claudeコマンドの引数を構築
+   * Codexコマンドの引数を構築
    */
-  buildClaudeArgs(prompt: string, sessionId?: string | null): string[] {
+  buildCodexArgs(prompt: string, sessionId?: string | null): string[] {
     const args = [
       "-p",
       prompt,
@@ -136,13 +136,13 @@ export class WorkerConfiguration {
   }
 
   /**
-   * Claude CLIの実行に必要な環境変数を構築
+   * Codex CLIの実行に必要な環境変数を構築
    */
-  buildClaudeEnv(): Record<string, string> {
+  buildCodexEnv(): Record<string, string> {
     const env: Record<string, string> = {};
 
     // 最大出力トークン数を環境変数として設定
-    env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = this.maxOutputTokens.toString();
+    env.CODEX_CODE_MAX_OUTPUT_TOKENS = this.maxOutputTokens.toString();
 
     return env;
   }

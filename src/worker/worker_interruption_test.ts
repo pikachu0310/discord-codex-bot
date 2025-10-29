@@ -4,9 +4,9 @@ import { WorkspaceManager } from "../workspace/workspace.ts";
 import { afterEach, beforeEach, describe, it } from "std/testing/bdd.ts";
 import { join } from "std/path/mod.ts";
 import type { WorkerState } from "../workspace/workspace.ts";
-import type { ClaudeCommandExecutor } from "./claude-executor.ts";
+import type { CodexCommandExecutor } from "./codex-executor.ts";
 import { ok, Result } from "neverthrow";
-import type { ClaudeExecutorError } from "./types.ts";
+import type { CodexExecutorError } from "./types.ts";
 
 describe("Worker 中断イベントログ記録", () => {
   let tempDir: string;
@@ -24,8 +24,8 @@ describe("Worker 中断イベントログ記録", () => {
   });
 
   it("stopExecutionメソッドが中断ログを記録する", async () => {
-    // モックのClaudeExecutorを作成
-    const mockExecutor: ClaudeCommandExecutor = {
+    // モックのCodexExecutorを作成
+    const mockExecutor: CodexCommandExecutor = {
       executeStreaming: async (
         _args: string[],
         _cwd: string,
@@ -33,7 +33,7 @@ describe("Worker 中断イベントログ記録", () => {
         signal?: AbortSignal,
         onChildProcess?: (childProcess: Deno.ChildProcess) => void,
       ): Promise<
-        Result<{ code: number; stderr: Uint8Array }, ClaudeExecutorError>
+        Result<{ code: number; stderr: Uint8Array }, CodexExecutorError>
       > => {
         // プロセスを模擬
         const mockProcess = {
@@ -76,7 +76,7 @@ describe("Worker 中断イベントログ記録", () => {
                 id: "msg_1",
                 type: "message",
                 role: "assistant",
-                model: "claude-3",
+                model: "codex-3",
                 content: [{
                   type: "tool_use",
                   id: "tool_1",

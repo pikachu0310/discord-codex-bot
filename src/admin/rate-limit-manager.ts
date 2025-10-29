@@ -96,7 +96,7 @@ export class RateLimitManager {
       minute: "2-digit",
     });
 
-    return `Claude Codeのレートリミットに達しました。利用制限により一時的に使用できない状態です。
+    return `Codex Codeのレートリミットに達しました。利用制限により一時的に使用できない状態です。
 
 制限解除予定時刻：${resumeTimeStr}頃
 

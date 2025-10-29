@@ -1,14 +1,14 @@
 import { assertEquals } from "https://deno.land/std@0.211.0/assert/mod.ts";
 import {
-  ClaudeCodeRateLimitError,
-  ClaudeStreamMessage,
-  ClaudeStreamProcessor,
-} from "./claude-stream-processor.ts";
+  CodexCodeRateLimitError,
+  CodexStreamMessage,
+  CodexStreamProcessor,
+} from "./codex-stream-processor.ts";
 import { MessageFormatter } from "./message-formatter.ts";
 
-Deno.test("ClaudeStreamProcessor - extractOutputMessage - assistantメッセージ", () => {
+Deno.test("CodexStreamProcessor - extractOutputMessage - assistantメッセージ", () => {
   const formatter = new MessageFormatter();
-  const processor = new ClaudeStreamProcessor(formatter);
+  const processor = new CodexStreamProcessor(formatter);
 
   const message = {
     type: "assistant" as const,
@@ -16,7 +16,7 @@ Deno.test("ClaudeStreamProcessor - extractOutputMessage - assistantメッセー�
       id: "msg-123",
       type: "message",
       role: "assistant",
-      model: "claude",
+      model: "codex",
       content: [
         { type: "text", text: "これはテストです", citations: null },
       ],
@@ -32,15 +32,15 @@ Deno.test("ClaudeStreamProcessor - extractOutputMessage - assistantメッセー�
       },
     },
     session_id: "session-123",
-  } satisfies ClaudeStreamMessage;
+  } satisfies CodexStreamMessage;
 
   const result = processor.extractOutputMessage(message);
   assertEquals(result, "これはテストです");
 });
 
-Deno.test("ClaudeStreamProcessor - extractOutputMessage - tool_useメッセージ", () => {
+Deno.test("CodexStreamProcessor - extractOutputMessage - tool_useメッセージ", () => {
   const formatter = new MessageFormatter();
-  const processor = new ClaudeStreamProcessor(formatter);
+  const processor = new CodexStreamProcessor(formatter);
 
   const message = {
     type: "assistant" as const,
@@ -48,7 +48,7 @@ Deno.test("ClaudeStreamProcessor - extractOutputMessage - tool_useメッセー�
       id: "msg-123",
       type: "message",
       role: "assistant",
-      model: "claude",
+      model: "codex",
       content: [
         {
           type: "tool_use",
@@ -69,15 +69,15 @@ Deno.test("ClaudeStreamProcessor - extractOutputMessage - tool_useメッセー�
       },
     },
     session_id: "session-123",
-  } satisfies ClaudeStreamMessage;
+  } satisfies CodexStreamMessage;
 
   const result = processor.extractOutputMessage(message);
   assertEquals(result, "⚡ **Bash**: ファイル一覧");
 });
 
-Deno.test("ClaudeStreamProcessor - extractOutputMessage - resultメッセージは無視", () => {
+Deno.test("CodexStreamProcessor - extractOutputMessage - resultメッセージは無視", () => {
   const formatter = new MessageFormatter();
-  const processor = new ClaudeStreamProcessor(formatter);
+  const processor = new CodexStreamProcessor(formatter);
 
   const message = {
     type: "result" as const,
@@ -89,15 +89,15 @@ Deno.test("ClaudeStreamProcessor - extractOutputMessage - resultメッセージ�
     duration_api_ms: 0,
     num_turns: 0,
     total_cost_usd: 0,
-  } satisfies ClaudeStreamMessage;
+  } satisfies CodexStreamMessage;
 
   const result = processor.extractOutputMessage(message);
   assertEquals(result, null);
 });
 
-Deno.test("ClaudeStreamProcessor - extractOutputMessage - systemメッセージ", () => {
+Deno.test("CodexStreamProcessor - extractOutputMessage - systemメッセージ", () => {
   const formatter = new MessageFormatter();
-  const processor = new ClaudeStreamProcessor(formatter);
+  const processor = new CodexStreamProcessor(formatter);
 
   const message = {
     type: "system" as const,
@@ -109,9 +109,9 @@ Deno.test("ClaudeStreamProcessor - extractOutputMessage - systemメッセージ"
     mcp_servers: [
       { name: "server1", status: "active" },
     ],
-    model: "claude",
+    model: "codex",
     permissionMode: "default",
-  } satisfies ClaudeStreamMessage;
+  } satisfies CodexStreamMessage;
 
   const result = processor.extractOutputMessage(message);
   assertEquals(
@@ -120,9 +120,9 @@ Deno.test("ClaudeStreamProcessor - extractOutputMessage - systemメッセージ"
   );
 });
 
-Deno.test("ClaudeStreamProcessor - processStreams - 基本的なストリーム処理", async () => {
+Deno.test("CodexStreamProcessor - processStreams - 基本的なストリーム処理", async () => {
   const formatter = new MessageFormatter();
-  const processor = new ClaudeStreamProcessor(formatter);
+  const processor = new CodexStreamProcessor(formatter);
 
   // テスト用のストリームを作成
   const testData = new TextEncoder().encode("テストデータ");
@@ -150,9 +150,9 @@ Deno.test("ClaudeStreamProcessor - processStreams - 基本的なストリーム�
   assertEquals(result.length, 0); // stderrは空
 });
 
-Deno.test("ClaudeStreamProcessor - processStreams - stderrの処理", async () => {
+Deno.test("CodexStreamProcessor - processStreams - stderrの処理", async () => {
   const formatter = new MessageFormatter();
-  const processor = new ClaudeStreamProcessor(formatter);
+  const processor = new CodexStreamProcessor(formatter);
 
   const stdout = new ReadableStream({
     start(controller) {
@@ -175,11 +175,11 @@ Deno.test("ClaudeStreamProcessor - processStreams - stderrの処理", async () =
   assertEquals(result, errorData);
 });
 
-Deno.test("ClaudeCodeRateLimitError - エラー作成", () => {
+Deno.test("CodexCodeRateLimitError - エラー作成", () => {
   const timestamp = Date.now();
-  const error = new ClaudeCodeRateLimitError(timestamp);
+  const error = new CodexCodeRateLimitError(timestamp);
 
-  assertEquals(error.name, "ClaudeCodeRateLimitError");
+  assertEquals(error.name, "CodexCodeRateLimitError");
   assertEquals(error.timestamp, timestamp);
-  assertEquals(error.message, `Claude AI usage limit reached|${timestamp}`);
+  assertEquals(error.message, `Codex AI usage limit reached|${timestamp}`);
 });

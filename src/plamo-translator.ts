@@ -78,7 +78,7 @@ export class PLaMoTranslator {
 
     // コーディング指示に特化したシステムプロンプト
     this.systemPrompt =
-      `You are a Japanese to English translator specialized in software development instructions. Your task is to translate Japanese instructions into clear, technical English that is suitable for Claude Code (an AI coding assistant).
+      `You are a Japanese to English translator specialized in software development instructions. Your task is to translate Japanese instructions into clear, technical English that is suitable for Codex Code (an AI coding assistant).
 
 Rules for translation:
 1. Preserve technical terms and programming keywords as-is (e.g., API, function, class names)

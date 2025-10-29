@@ -2,12 +2,12 @@ import { assertEquals } from "std/assert/mod.ts";
 import { afterEach, beforeEach, describe, it } from "std/testing/bdd.ts";
 import { Worker } from "./worker.ts";
 import { WorkspaceManager } from "../workspace/workspace.ts";
-import type { ClaudeCommandExecutor } from "../worker/claude-executor.ts";
-import type { ClaudeExecutorError } from "./types.ts";
+import type { CodexCommandExecutor } from "../worker/codex-executor.ts";
+import type { CodexExecutorError } from "./types.ts";
 import { err, ok, Result } from "neverthrow";
 
 // モックExecutor - 長時間実行をシミュレート
-class MockLongRunningExecutor implements ClaudeCommandExecutor {
+class MockLongRunningExecutor implements CodexCommandExecutor {
   private process: Deno.ChildProcess | null = null;
 
   async executeStreaming(
@@ -17,7 +17,7 @@ class MockLongRunningExecutor implements ClaudeCommandExecutor {
     abortSignal?: AbortSignal,
     onProcessStart?: (childProcess: Deno.ChildProcess) => void,
   ): Promise<
-    Result<{ code: number; stderr: Uint8Array }, ClaudeExecutorError>
+    Result<{ code: number; stderr: Uint8Array }, CodexExecutorError>
   > {
     // 長時間実行するプロセスをシミュレート
     const command = new Deno.Command("sleep", {
@@ -138,7 +138,7 @@ describe("Worker stopExecution", () => {
     const messages: string[] = [];
     let isExecuting = false;
 
-    // Claude実行を非同期で開始
+    // Codex実行を非同期で開始
     const executePromise = worker.processMessage(
       "長時間実行するタスク",
       async (message) => {
@@ -156,7 +156,7 @@ describe("Worker stopExecution", () => {
     // 実行中であることを確認
     assertEquals(isExecuting, true);
     assertEquals(
-      messages.some((m) => m.includes("Claudeが考えています")),
+      messages.some((m) => m.includes("Codexが考えています")),
       true,
     );
 
@@ -167,7 +167,7 @@ describe("Worker stopExecution", () => {
 
     assertEquals(stopResult, true);
     assertEquals(
-      messages.some((m) => m.includes("Claude Codeの実行を中断しました")),
+      messages.some((m) => m.includes("Codex Codeの実行を中断しました")),
       true,
     );
 
@@ -236,7 +236,7 @@ describe("Worker stopExecution", () => {
       mockExecutor,
     );
 
-    // Claude実行を非同期で開始
+    // Codex実行を非同期で開始
     const executePromise = worker.processMessage(
       "長時間実行するタスク",
       async () => {},

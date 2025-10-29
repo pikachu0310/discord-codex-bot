@@ -200,7 +200,7 @@ export class DevcontainerManager {
     return {
       hasDevcontainer: true,
       message:
-        "devcontainer.jsonが見つかりましたが、devcontainer CLIがインストールされていません。通常のローカル環境でClaudeを実行します。\n\n`--dangerously-skip-permissions`オプションを使用しますか？（権限チェックをスキップします。注意して使用してください）",
+        "devcontainer.jsonが見つかりましたが、devcontainer CLIがインストールされていません。通常のローカル環境でCodexを実行します。\n\n`--dangerously-skip-permissions`オプションを使用しますか？（権限チェックをスキップします。注意して使用してください）",
       components: [this.createPermissionButtons(threadId)],
       warning:
         "devcontainer CLIをインストールしてください: npm install -g @devcontainers/cli",
@@ -223,7 +223,7 @@ export class DevcontainerManager {
     let warningMessage = "";
     if (!hasAnthropicsFeature) {
       warningMessage =
-        "⚠️ 警告: anthropics/devcontainer-featuresが設定に含まれていません。Claude CLIが正常に動作しない可能性があります。";
+        "⚠️ 警告: anthropics/devcontainer-featuresが設定に含まれていません。Codex CLIが正常に動作しない可能性があります。";
     }
 
     this.logVerbose("devcontainer設定チェック完了、選択肢を提示", {
@@ -244,7 +244,7 @@ export class DevcontainerManager {
     return {
       hasDevcontainer: true,
       message:
-        `devcontainer.jsonが見つかりました。devcontainer内でClaudeを実行しますか？\n\n**確認事項:**\n- devcontainer CLI: ✅ 利用可能\n- Anthropics features: ${
+        `devcontainer.jsonが見つかりました。devcontainer内でCodexを実行しますか？\n\n**確認事項:**\n- devcontainer CLI: ✅ 利用可能\n- Anthropics features: ${
           hasAnthropicsFeature ? "✅" : "❌"
         }\n\n下のボタンで選択してください：`,
       components: [this.createDevcontainerButtons(threadId)],
@@ -351,7 +351,7 @@ export class DevcontainerManager {
       return {
         success: true,
         message:
-          "devcontainerが正常に起動しました。Claude実行環境が準備完了です。",
+          "devcontainerが正常に起動しました。Codex実行環境が準備完了です。",
       };
     }
     await this.logAuditEntry(threadId, "devcontainer_start_failed", {
@@ -440,15 +440,15 @@ export class DevcontainerManager {
         containerId,
       });
 
-      // WorkerにDevcontainerClaudeExecutorへの切り替えを通知
+      // WorkerにDevcontainerCodexExecutorへの切り替えを通知
       // この時点でWorkerは既にuseDevcontainer=trueになっているが、
-      // DevcontainerClaudeExecutorへの切り替えはWorker側で行う必要がある
+      // DevcontainerCodexExecutorへの切り替えはWorker側で行う必要がある
       // WorkerのstartDevcontainerメソッドを呼び出すか、別の方法で通知する必要がある
 
       return {
         success: true,
         message:
-          "fallback devcontainerが正常に起動しました。Claude実行環境が準備完了です。",
+          "fallback devcontainerが正常に起動しました。Codex実行環境が準備完了です。",
       };
     }
     await this.logAuditEntry(threadId, "fallback_devcontainer_start_failed", {
@@ -510,7 +510,7 @@ export class DevcontainerManager {
     };
     await this.saveDevcontainerConfig(threadId, config);
 
-    return "通常のローカル環境でClaude実行を設定しました。";
+    return "通常のローカル環境でCodex実行を設定しました。";
   }
 
   /**
@@ -531,7 +531,7 @@ export class DevcontainerManager {
     };
     await this.saveDevcontainerConfig(threadId, config);
 
-    return "通常のローカル環境でClaudeを実行します。";
+    return "通常のローカル環境でCodexを実行します。";
   }
 
   /**
@@ -548,7 +548,7 @@ export class DevcontainerManager {
     const config = {
       useDevcontainer: true,
       hasDevcontainerFile: false, // fallbackを使用
-      hasAnthropicsFeature: true, // fallbackにはClaude Codeが含まれている
+      hasAnthropicsFeature: true, // fallbackにはCodex Codeが含まれている
       useFallback: true,
       isStarted: false,
     };
@@ -570,7 +570,7 @@ export class DevcontainerManager {
 
     this.logVerbose("権限チェックありでローカル環境実行を設定", { threadId });
 
-    return "ローカル環境でClaude実行を設定しました（権限チェックあり）。";
+    return "ローカル環境でCodex実行を設定しました（権限チェックあり）。";
   }
 
   /**
@@ -587,7 +587,7 @@ export class DevcontainerManager {
       threadId,
     });
 
-    return "ローカル環境でClaude実行を設定しました（権限チェックスキップ）。\n\n⚠️ 権限チェックがスキップされています。注意してご利用ください。";
+    return "ローカル環境でCodex実行を設定しました（権限チェックスキップ）。\n\n⚠️ 権限チェックがスキップされています。注意してご利用ください。";
   }
 
   /**

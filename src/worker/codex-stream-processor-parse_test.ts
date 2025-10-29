@@ -3,14 +3,14 @@ import {
   assertThrows,
 } from "https://deno.land/std@0.218.0/assert/mod.ts";
 import {
-  ClaudeStreamProcessor,
+  CodexStreamProcessor,
   JsonParseError,
-} from "./claude-stream-processor.ts";
+} from "./codex-stream-processor.ts";
 import { MessageFormatter } from "./message-formatter.ts";
 
-Deno.test("ClaudeStreamProcessor parseJsonLine - 正常なassistantメッセージをパース", () => {
+Deno.test("CodexStreamProcessor parseJsonLine - 正常なassistantメッセージをパース", () => {
   const formatter = new MessageFormatter();
-  const processor = new ClaudeStreamProcessor(formatter);
+  const processor = new CodexStreamProcessor(formatter);
 
   const validJson = JSON.stringify({
     type: "assistant",
@@ -18,7 +18,7 @@ Deno.test("ClaudeStreamProcessor parseJsonLine - 正常なassistantメッセー�
       id: "msg_123",
       type: "message",
       role: "assistant",
-      model: "claude-3-opus",
+      model: "codex-3-opus",
       content: [{ type: "text", text: "Hello world" }],
       stop_reason: "end_turn",
     },
@@ -30,9 +30,9 @@ Deno.test("ClaudeStreamProcessor parseJsonLine - 正常なassistantメッセー�
   assertEquals(result.session_id, "session_123");
 });
 
-Deno.test("ClaudeStreamProcessor parseJsonLine - 正常なresultメッセージをパース", () => {
+Deno.test("CodexStreamProcessor parseJsonLine - 正常なresultメッセージをパース", () => {
   const formatter = new MessageFormatter();
-  const processor = new ClaudeStreamProcessor(formatter);
+  const processor = new CodexStreamProcessor(formatter);
 
   const validJson = JSON.stringify({
     type: "result",
@@ -52,9 +52,9 @@ Deno.test("ClaudeStreamProcessor parseJsonLine - 正常なresultメッセージ�
   }
 });
 
-Deno.test("ClaudeStreamProcessor parseJsonLine - 正常なsystemメッセージをパース", () => {
+Deno.test("CodexStreamProcessor parseJsonLine - 正常なsystemメッセージをパース", () => {
   const formatter = new MessageFormatter();
-  const processor = new ClaudeStreamProcessor(formatter);
+  const processor = new CodexStreamProcessor(formatter);
 
   const validJson = JSON.stringify({
     type: "system",
@@ -71,9 +71,9 @@ Deno.test("ClaudeStreamProcessor parseJsonLine - 正常なsystemメッセージ�
   }
 });
 
-Deno.test("ClaudeStreamProcessor parseJsonLine - 空文字列でJsonParseErrorをスロー", () => {
+Deno.test("CodexStreamProcessor parseJsonLine - 空文字列でJsonParseErrorをスロー", () => {
   const formatter = new MessageFormatter();
-  const processor = new ClaudeStreamProcessor(formatter);
+  const processor = new CodexStreamProcessor(formatter);
 
   assertThrows(
     () => processor.parseJsonLine(""),
@@ -82,9 +82,9 @@ Deno.test("ClaudeStreamProcessor parseJsonLine - 空文字列でJsonParseError�
   );
 });
 
-Deno.test("ClaudeStreamProcessor parseJsonLine - 無効なJSONでJsonParseErrorをスロー", () => {
+Deno.test("CodexStreamProcessor parseJsonLine - 無効なJSONでJsonParseErrorをスロー", () => {
   const formatter = new MessageFormatter();
-  const processor = new ClaudeStreamProcessor(formatter);
+  const processor = new CodexStreamProcessor(formatter);
 
   assertThrows(
     () => processor.parseJsonLine("not json"),

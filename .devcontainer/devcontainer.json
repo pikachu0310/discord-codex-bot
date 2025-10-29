@@ -1,10 +1,10 @@
 {
-  "name": "Discord Claude Code Bot",
+  "name": "Discord Codex Code Bot",
   "image": "mcr.microsoft.com/devcontainers/universal:3-linux",
   "features": {
     "ghcr.io/devcontainers/features/node:1": {},
     "ghcr.io/devcontainers-extra/features/deno:1": {},
-    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {},
+    "ghcr.io/anthropics/devcontainer-features/codex-code:1.0": {},
     "ghcr.io/devcontainers/features/git:1": {
       "ppa": true,
       "version": "latest"
@@ -23,7 +23,7 @@
   "mounts": [
     "source=${localEnv:HOME}/.gitconfig,target=/home/codespace/.gitconfig,type=bind,consistency=cached",
     "source=${localEnv:HOME}/.ssh,target=/home/codespace/.ssh,type=bind,consistency=cached",
-    "source=${localEnv:HOME}/.claude,target=/home/codespace/.claude,type=bind,consistency=consistent"
+    "source=${localEnv:HOME}/.codex,target=/home/codespace/.codex,type=bind,consistency=consistent"
   ],
   "postCreateCommand": "sh setup-hooks.sh"
 }

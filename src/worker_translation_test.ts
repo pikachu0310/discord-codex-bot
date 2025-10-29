@@ -1,12 +1,12 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { parseRepository } from "./git-utils.ts";
-import { ClaudeCommandExecutor } from "./worker/claude-executor.ts";
+import { CodexCommandExecutor } from "./worker/codex-executor.ts";
 import { ok } from "neverthrow";
 import { WorkerState, WorkspaceManager } from "./workspace/workspace.ts";
 import { Worker } from "./worker/worker.ts";
 
-// モックのClaudeCommandExecutor
-class MockClaudeCommandExecutor implements ClaudeCommandExecutor {
+// モックのCodexCommandExecutor
+class MockCodexCommandExecutor implements CodexCommandExecutor {
   private responses: string[] = [];
   private callCount = 0;
   public lastPrompt: string | null = null;
@@ -121,7 +121,7 @@ Deno.test("Worker - 翻訳機能が有効な場合、メッセージが翻訳さ
     const workspaceManager = new WorkspaceManager(tempDir);
     await workspaceManager.initialize();
 
-    const mockExecutor = new MockClaudeCommandExecutor([
+    const mockExecutor = new MockCodexCommandExecutor([
       JSON.stringify({
         type: "system",
         subtype: "init",
@@ -134,7 +134,7 @@ Deno.test("Worker - 翻訳機能が有効な場合、メッセージが翻訳さ
           id: "msg_001",
           type: "message",
           role: "assistant",
-          model: "claude-3-opus",
+          model: "codex-3-opus",
           content: [{
             type: "text",
             text: "Authentication has been implemented.",
@@ -189,7 +189,7 @@ Deno.test("Worker - 翻訳機能が有効な場合、メッセージが翻訳さ
     // 結果が正常に返されることを確認
     assertEquals(result.isOk(), true);
     if (result.isOk()) {
-      // Claudeに渡されたプロンプトが翻訳されているか確認
+      // Codexに渡されたプロンプトが翻訳されているか確認
       assertEquals(
         mockExecutor.lastPrompt,
         "Implement authentication functionality",
@@ -212,7 +212,7 @@ Deno.test("Worker - 翻訳機能が無効な場合、元のメッセージがそ
     const workspaceManager = new WorkspaceManager(tempDir);
     await workspaceManager.initialize();
 
-    const mockExecutor = new MockClaudeCommandExecutor([
+    const mockExecutor = new MockCodexCommandExecutor([
       JSON.stringify({
         type: "system",
         subtype: "init",
@@ -225,7 +225,7 @@ Deno.test("Worker - 翻訳機能が無効な場合、元のメッセージがそ
           id: "msg_002",
           type: "message",
           role: "assistant",
-          model: "claude-3-opus",
+          model: "codex-3-opus",
           content: [{ type: "text", text: "認証機能を実装しました。" }],
           stop_reason: "end_turn",
         },
@@ -277,7 +277,7 @@ Deno.test("Worker - 翻訳機能が無効な場合、元のメッセージがそ
     // 結果が正常に返されることを確認
     assertEquals(result.isOk(), true);
     if (result.isOk()) {
-      // Claudeに渡されたプロンプトが翻訳されていないことを確認
+      // Codexに渡されたプロンプトが翻訳されていないことを確認
       assertEquals(mockExecutor.lastPrompt, "認証機能を実装してください");
       assertEquals(result.value, "認証機能を実装しました。");
     }
@@ -293,7 +293,7 @@ Deno.test("Worker - 翻訳APIがエラーの場合、元のメッセージが使
     const workspaceManager = new WorkspaceManager(tempDir);
     await workspaceManager.initialize();
 
-    const mockExecutor = new MockClaudeCommandExecutor([
+    const mockExecutor = new MockCodexCommandExecutor([
       JSON.stringify({
         type: "system",
         subtype: "init",
@@ -306,7 +306,7 @@ Deno.test("Worker - 翻訳APIがエラーの場合、元のメッセージが使
           id: "msg_003",
           type: "message",
           role: "assistant",
-          model: "claude-3-opus",
+          model: "codex-3-opus",
           content: [{
             type: "text",
             text: "エラーハンドリングを追加しました。",
@@ -386,7 +386,7 @@ Deno.test(
       const workspaceManager = new WorkspaceManager(tempDir);
       await workspaceManager.initialize();
 
-      const mockExecutor = new MockClaudeCommandExecutor([
+      const mockExecutor = new MockCodexCommandExecutor([
         JSON.stringify({
           type: "system",
           subtype: "init",

@@ -3,19 +3,19 @@ import { WorkerState, WorkspaceManager } from "../workspace/workspace.ts";
 import { PLaMoTranslator } from "../plamo-translator.ts";
 import { MessageFormatter } from "./message-formatter.ts";
 import {
-  ClaudeCodeRateLimitError,
-  type ClaudeStreamMessage,
-  ClaudeStreamProcessor,
+  CodexCodeRateLimitError,
+  type CodexStreamMessage,
+  CodexStreamProcessor,
   JsonParseError,
   SchemaValidationError,
-} from "./claude-stream-processor.ts";
+} from "./codex-stream-processor.ts";
 import { WorkerConfiguration } from "./worker-configuration.ts";
 import { SessionLogger } from "./session-logger.ts";
 import {
-  ClaudeCommandExecutor,
-  DefaultClaudeCommandExecutor,
-  DevcontainerClaudeExecutor,
-} from "./claude-executor.ts";
+  CodexCommandExecutor,
+  DefaultCodexCommandExecutor,
+  DevcontainerCodexExecutor,
+} from "./codex-executor.ts";
 import type { IWorker, WorkerError } from "./types.ts";
 import { err, ok, Result } from "neverthrow";
 import { PROCESS } from "../constants.ts";
@@ -24,14 +24,14 @@ import { ContextCompressor } from "../services/context-compressor.ts";
 
 export class Worker implements IWorker {
   private state: WorkerState;
-  private claudeExecutor: ClaudeCommandExecutor;
+  private codexExecutor: CodexCommandExecutor;
   private readonly workspaceManager: WorkspaceManager;
   private readonly configuration: WorkerConfiguration;
   private readonly sessionLogger: SessionLogger;
   private readonly contextCompressor: ContextCompressor;
   private formatter: MessageFormatter;
   private translator: PLaMoTranslator | null = null;
-  private claudeProcess: Deno.ChildProcess | null = null;
+  private codexProcess: Deno.ChildProcess | null = null;
   private abortController: AbortController | null = null;
   private isExecuting = false;
   private executionStartTime: number | null = null;
@@ -41,7 +41,7 @@ export class Worker implements IWorker {
   constructor(
     state: WorkerState,
     workspaceManager: WorkspaceManager,
-    claudeExecutor?: ClaudeCommandExecutor,
+    codexExecutor?: CodexCommandExecutor,
     verbose?: boolean,
     appendSystemPrompt?: string,
     translatorUrl?: string,
@@ -57,8 +57,8 @@ export class Worker implements IWorker {
     this.sessionLogger = new SessionLogger(workspaceManager);
     this.contextCompressor = new ContextCompressor();
     this.formatter = new MessageFormatter(state.worktreePath || undefined);
-    this.claudeExecutor = claudeExecutor ||
-      new DefaultClaudeCommandExecutor(this.configuration.isVerbose());
+    this.codexExecutor = codexExecutor ||
+      new DefaultCodexCommandExecutor(this.configuration.isVerbose());
     this.rateLimitManager = rateLimitManager;
 
     // 翻訳URLが設定されている場合は翻訳機能を初期化
@@ -102,7 +102,7 @@ export class Worker implements IWorker {
 
     // devcontainerの選択が完了していない場合は設定を促すメッセージを返す
     if (!this.isConfigurationComplete()) {
-      this.logVerbose("Claude Code設定が未完了", {
+      this.logVerbose("Codex Code設定が未完了", {
         devcontainerChoiceMade: this.isConfigurationComplete(),
         useDevcontainer: this.state.devcontainerConfig.useDevcontainer,
       });
@@ -152,41 +152,41 @@ export class Worker implements IWorker {
 
       // 処理開始の通知
       this.logVerbose("進捗通知開始");
-      await onProgress("🤖 Claudeが考えています...");
+      await onProgress("🤖 Codexが考えています...");
 
-      // Claude実行開始前のリアクションを追加
+      // Codex実行開始前のリアクションを追加
       if (onReaction) {
         try {
           await onReaction("⚙️");
-          this.logVerbose("Claude実行開始リアクション追加完了");
+          this.logVerbose("Codex実行開始リアクション追加完了");
         } catch (error) {
-          this.logVerbose("Claude実行開始リアクション追加エラー", {
+          this.logVerbose("Codex実行開始リアクション追加エラー", {
             error: (error as Error).message,
           });
         }
       }
 
-      this.logVerbose("Claude実行開始");
-      const claudeResult = await this.executeClaude(
+      this.logVerbose("Codex実行開始");
+      const codexResult = await this.executeCodex(
         translatedMessage,
         onProgress,
       );
-      if (claudeResult.isErr()) {
+      if (codexResult.isErr()) {
         // 中断エラーの場合は特別なメッセージを返す
         if (
-          claudeResult.error.type === "CLAUDE_EXECUTION_FAILED" &&
-          claudeResult.error.error === "中断されました"
+          codexResult.error.type === "CODEX_EXECUTION_FAILED" &&
+          codexResult.error.error === "中断されました"
         ) {
           // 中断が正常に完了した場合はエラーではなく正常終了として扱う
           return ok(
-            "⛔ Claude Codeの実行を中断しました\n\n💡 新しい指示を送信して作業を続けることができます",
+            "⛔ Codex Codeの実行を中断しました\n\n💡 新しい指示を送信して作業を続けることができます",
           );
         }
-        return claudeResult;
+        return codexResult;
       }
 
-      const result = claudeResult.value;
-      this.logVerbose("Claude実行完了", { resultLength: result.length });
+      const result = codexResult.value;
+      this.logVerbose("Codex実行完了", { resultLength: result.length });
 
       const formattedResponse = this.formatter.formatResponse(result);
       this.logVerbose("レスポンス整形完了", {
@@ -196,7 +196,7 @@ export class Worker implements IWorker {
       this.logVerbose("メッセージ処理完了");
       return ok(formattedResponse);
     } catch (error) {
-      if (error instanceof ClaudeCodeRateLimitError) {
+      if (error instanceof CodexCodeRateLimitError) {
         return err({
           type: "RATE_LIMIT",
           retryAt: error.retryAt,
@@ -208,28 +208,28 @@ export class Worker implements IWorker {
         errorStack: (error as Error).stack,
       });
       console.error(
-        `Worker ${this.state.workerName} - Claude実行エラー:`,
+        `Worker ${this.state.workerName} - Codex実行エラー:`,
         error,
       );
       return err({
-        type: "CLAUDE_EXECUTION_FAILED",
+        type: "CODEX_EXECUTION_FAILED",
         error: (error as Error).message,
       });
     } finally {
       // 実行状態をリセット
       this.isExecuting = false;
-      this.claudeProcess = null;
+      this.codexProcess = null;
       this.abortController = null;
       this.executionStartTime = null;
       this.lastActivityDescription = null;
     }
   }
 
-  private async executeClaude(
+  private async executeCodex(
     prompt: string,
     onProgress: (content: string) => Promise<void>,
   ): Promise<Result<string, WorkerError>> {
-    const args = this.configuration.buildClaudeArgs(
+    const args = this.configuration.buildCodexArgs(
       prompt,
       this.state.sessionId,
     );
@@ -263,7 +263,7 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
       args.splice(0, args.length, ...modifiedArgs);
     }
 
-    this.logVerbose("Claudeコマンド実行", {
+    this.logVerbose("Codexコマンド実行", {
       args: args,
       cwd: this.state.worktreePath,
       useDevcontainer: this.state.devcontainerConfig.useDevcontainer,
@@ -271,10 +271,10 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
     });
 
     this.logVerbose("ストリーミング実行開始");
-    return await this.executeClaudeStreaming(args, onProgress);
+    return await this.executeCodexStreaming(args, onProgress);
   }
 
-  private async executeClaudeStreaming(
+  private async executeCodexStreaming(
     args: string[],
     onProgress: (content: string) => Promise<void>,
   ): Promise<Result<string, WorkerError>> {
@@ -286,7 +286,7 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
     let allOutput = "";
     let processedLines = 0;
 
-    const streamProcessor = new ClaudeStreamProcessor(
+    const streamProcessor = new CodexStreamProcessor(
       this.formatter,
     );
 
@@ -326,18 +326,18 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
     // コンテキスト圧縮を実行
     await this.checkAndCompressContext();
 
-    const executionResult = await this.claudeExecutor.executeStreaming(
+    const executionResult = await this.codexExecutor.executeStreaming(
       args,
       this.state.worktreePath,
       onData,
       this.abortController?.signal,
       (childProcess) => {
-        this.claudeProcess = childProcess;
-        this.logVerbose("Claudeプロセス開始", {
+        this.codexProcess = childProcess;
+        this.logVerbose("Codexプロセス開始", {
           processId: childProcess.pid,
         });
       },
-      this.configuration.buildClaudeEnv(),
+      this.configuration.buildCodexEnv(),
     );
 
     if (executionResult.isErr()) {
@@ -349,7 +349,7 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
         // セッションデータを保存してから中断メッセージを返す
         await this.saveSessionData(newSessionId, allOutput);
         return err({
-          type: "CLAUDE_EXECUTION_FAILED",
+          type: "CODEX_EXECUTION_FAILED",
           error: "中断されました",
         });
       }
@@ -359,7 +359,7 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
           ? `コマンド実行失敗 (コード: ${executionResult.error.code}): ${executionResult.error.stderr}`
           : executionResult.error.error;
       return err({
-        type: "CLAUDE_EXECUTION_FAILED",
+        type: "CODEX_EXECUTION_FAILED",
         error: errorMessage,
       });
     }
@@ -391,7 +391,7 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
         console.log(
           `[${
             new Date().toISOString()
-          }] [Worker:${this.state.workerName}] Claude stderr (警告等):`,
+          }] [Worker:${this.state.workerName}] Codex stderr (警告等):`,
         );
         console.log(
           `  ${
@@ -411,7 +411,7 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
 
   private processStreamLine(
     line: string,
-    streamProcessor: ClaudeStreamProcessor,
+    streamProcessor: CodexStreamProcessor,
     onProgress: ((content: string) => Promise<void>) | undefined,
     state: { result: string; newSessionId: string | null },
     updateState: (updates: {
@@ -454,7 +454,7 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
           break;
       }
 
-      // Claude Codeの実際の出力内容をDiscordに送信
+      // Codex Codeの実際の出力内容をDiscordに送信
       if (onProgress) {
         const outputMessage = streamProcessor.extractOutputMessage(parsed);
         if (outputMessage) {
@@ -477,7 +477,7 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
         });
       }
     } catch (parseError) {
-      if (parseError instanceof ClaudeCodeRateLimitError) {
+      if (parseError instanceof CodexCodeRateLimitError) {
         throw parseError;
       }
 
@@ -503,16 +503,16 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
 
       // JSONとしてパースできなかった場合もレートリミットをチェック
       if (line.trim()) {
-        // Claude Codeレートリミットの検出（生テキスト内）
-        if (line.includes("Claude AI usage limit reached")) {
-          this.logVerbose("Claude Codeレートリミット検出（生テキスト内）", {
+        // Codex Codeレートリミットの検出（生テキスト内）
+        if (line.includes("Codex AI usage limit reached")) {
+          this.logVerbose("Codex Codeレートリミット検出（生テキスト内）", {
             line: line.substring(0, 200),
           });
           const match = line.match(
-            /Claude AI usage limit reached[\|\s](\d+)/,
+            /Codex AI usage limit reached[\|\s](\d+)/,
           );
           if (match) {
-            throw new ClaudeCodeRateLimitError(
+            throw new CodexCodeRateLimitError(
               Number.parseInt(match[1], 10),
             );
           }
@@ -527,7 +527,7 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
   }
 
   private handleAssistantMessage(
-    parsed: ClaudeStreamMessage,
+    parsed: CodexStreamMessage,
     state: { result: string; newSessionId: string | null },
     updateState: (updates: { result?: string }) => void,
   ): void {
@@ -539,19 +539,19 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
         }
       }
       if (textResult) {
-        // Claude Codeレートリミットの検出（assistantメッセージ内）
-        if (textResult.includes("Claude AI usage limit reached")) {
+        // Codex Codeレートリミットの検出（assistantメッセージ内）
+        if (textResult.includes("Codex AI usage limit reached")) {
           this.logVerbose(
-            "Claude Codeレートリミット検出（assistantメッセージ内）",
+            "Codex Codeレートリミット検出（assistantメッセージ内）",
             {
               textResult: textResult.substring(0, 200),
             },
           );
           const match = textResult.match(
-            /Claude AI usage limit reached[\|\s](\d+)/,
+            /Codex AI usage limit reached[\|\s](\d+)/,
           );
           if (match) {
-            throw new ClaudeCodeRateLimitError(
+            throw new CodexCodeRateLimitError(
               Number.parseInt(match[1], 10),
             );
           }
@@ -564,7 +564,7 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
   }
 
   private handleResultMessage(
-    parsed: ClaudeStreamMessage,
+    parsed: CodexStreamMessage,
     updateState: (updates: { result?: string }) => void,
   ): void {
     if (parsed.type === "result" && "result" in parsed && parsed.result) {
@@ -591,16 +591,16 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
         });
       }
 
-      // Claude Codeレートリミットの検出
-      if (parsed.result.includes("Claude AI usage limit reached")) {
-        this.logVerbose("Claude Codeレートリミット検出（resultメッセージ内）", {
+      // Codex Codeレートリミットの検出
+      if (parsed.result.includes("Codex AI usage limit reached")) {
+        this.logVerbose("Codex Codeレートリミット検出（resultメッセージ内）", {
           result: parsed.result.substring(0, 200),
         });
         const match = parsed.result.match(
-          /Claude AI usage limit reached[\|\s](\d+)/,
+          /Codex AI usage limit reached[\|\s](\d+)/,
         );
         if (match) {
-          throw new ClaudeCodeRateLimitError(
+          throw new CodexCodeRateLimitError(
             Number.parseInt(match[1], 10),
           );
         }
@@ -622,7 +622,7 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
         console.log(
           `[${
             new Date().toISOString()
-          }] [Worker:${this.state.workerName}] Claude stdout (エラー時):`,
+          }] [Worker:${this.state.workerName}] Codex stdout (エラー時):`,
         );
         console.log(
           `  ${stdout.split("\n").map((line) => `  ${line}`).join("\n")}`,
@@ -634,7 +634,7 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
         console.log(
           `[${
             new Date().toISOString()
-          }] [Worker:${this.state.workerName}] Claude stderr:`,
+          }] [Worker:${this.state.workerName}] Codex stderr:`,
         );
         console.log(`  終了コード: ${code}`);
         console.log(`  エラー内容:`);
@@ -647,7 +647,7 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
     }
 
     // エラーメッセージの構築（stdoutも含める）
-    let errorDetail = `Claude実行失敗 (終了コード: ${code})`;
+    let errorDetail = `Codex実行失敗 (終了コード: ${code})`;
     if (stderrMessage.trim()) {
       errorDetail += `\nstderr: ${stderrMessage}`;
     }
@@ -664,7 +664,7 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
       stdoutLength: stdout.length,
     });
     return err({
-      type: "CLAUDE_EXECUTION_FAILED",
+      type: "CODEX_EXECUTION_FAILED",
       error: errorDetail,
     });
   }
@@ -717,7 +717,7 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
       console.log(
         `[${
           new Date().toISOString()
-        }] [Worker:${this.state.workerName}] Claude stdout:`,
+        }] [Worker:${this.state.workerName}] Codex stdout:`,
       );
       console.log(
         `  ${chunk.split("\n").map((line) => `  ${line}`).join("\n")}`,
@@ -743,7 +743,7 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
     await this.saveSessionData(newSessionId, allOutput);
 
     const finalResult = result.trim() ||
-      "Claude からの応答を取得できませんでした。";
+      "Codex からの応答を取得できませんでした。";
     this.logVerbose("ストリーミング処理完了", {
       finalResultLength: finalResult.length,
     });
@@ -810,7 +810,7 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
       this.state.worktreePath = localPath;
     }
 
-    // devcontainerが有効な場合はDevcontainerClaudeExecutorに切り替え
+    // devcontainerが有効な場合はDevcontainerCodexExecutorに切り替え
     if (
       this.state.devcontainerConfig.useDevcontainer && this.state.worktreePath
     ) {
@@ -829,8 +829,8 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
         }
       }
 
-      this.logVerbose("DevcontainerClaudeExecutorに切り替え");
-      this.claudeExecutor = new DevcontainerClaudeExecutor(
+      this.logVerbose("DevcontainerCodexExecutorに切り替え");
+      this.codexExecutor = new DevcontainerCodexExecutor(
         this.state.worktreePath,
         this.configuration.isVerbose(),
         ghToken,
@@ -844,8 +844,8 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
     this.logVerbose("リポジトリ設定完了", {
       finalWorktreePath: this.state.worktreePath,
       executorType: this.state.devcontainerConfig.useDevcontainer
-        ? "DevcontainerClaudeExecutor"
-        : "DefaultClaudeCommandExecutor",
+        ? "DevcontainerCodexExecutor"
+        : "DefaultCodexCommandExecutor",
     });
 
     // Worker状態を保存
@@ -886,15 +886,15 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
 
     // devcontainerが有効で、worktreePathが設定されている場合はExecutorを切り替え
     if (useDevcontainer && this.state.worktreePath) {
-      this.logVerbose("DevcontainerClaudeExecutorに切り替え（設定変更時）");
-      this.claudeExecutor = new DevcontainerClaudeExecutor(
+      this.logVerbose("DevcontainerCodexExecutorに切り替え（設定変更時）");
+      this.codexExecutor = new DevcontainerCodexExecutor(
         this.state.worktreePath,
         this.configuration.isVerbose(),
       );
     } else if (!useDevcontainer && this.state.worktreePath) {
       // devcontainerを無効にした場合はDefaultに戻す
-      this.logVerbose("DefaultClaudeCommandExecutorに切り替え（設定変更時）");
-      this.claudeExecutor = new DefaultClaudeCommandExecutor(
+      this.logVerbose("DefaultCodexCommandExecutorに切り替え（設定変更時）");
+      this.codexExecutor = new DefaultCodexCommandExecutor(
         this.configuration.isVerbose(),
       );
     }
@@ -1015,7 +1015,7 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
    * ストリームメッセージから最後のアクティビティの説明を抽出
    */
   private extractActivityDescription(
-    parsed: ClaudeStreamMessage,
+    parsed: CodexStreamMessage,
     outputMessage: string,
   ): string {
     // ツール使用の場合
@@ -1104,14 +1104,14 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
       this.state.devcontainerConfig.isStarted = true;
       this.state.devcontainerConfig.containerId = result.value.containerId;
 
-      // DevcontainerClaudeExecutorに切り替え
+      // DevcontainerCodexExecutorに切り替え
       if (
         this.state.devcontainerConfig.useDevcontainer && this.state.worktreePath
       ) {
         this.logVerbose(
-          "DevcontainerClaudeExecutorに切り替え（startDevcontainer成功後）",
+          "DevcontainerCodexExecutorに切り替え（startDevcontainer成功後）",
         );
-        this.claudeExecutor = new DevcontainerClaudeExecutor(
+        this.codexExecutor = new DevcontainerCodexExecutor(
           this.state.worktreePath,
           this.configuration.isVerbose(),
           ghToken,
@@ -1147,13 +1147,13 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
   }
 
   /**
-   * fallback devcontainer起動後にClaudeExecutorを更新する
+   * fallback devcontainer起動後にCodexExecutorを更新する
    */
-  async updateClaudeExecutorForDevcontainer(): Promise<void> {
+  async updateCodexExecutorForDevcontainer(): Promise<void> {
     if (
       !this.state.devcontainerConfig.useDevcontainer || !this.state.worktreePath
     ) {
-      this.logVerbose("DevcontainerClaudeExecutor切り替えスキップ", {
+      this.logVerbose("DevcontainerCodexExecutor切り替えスキップ", {
         useDevcontainer: this.state.devcontainerConfig.useDevcontainer,
         hasWorktreePath: !!this.state.worktreePath,
       });
@@ -1169,7 +1169,7 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
       if (patInfo) {
         ghToken = patInfo.token;
         this.logVerbose(
-          "GitHub PAT取得（updateClaudeExecutorForDevcontainer）",
+          "GitHub PAT取得（updateCodexExecutorForDevcontainer）",
           {
             repository: this.state.repository.fullName,
             hasToken: true,
@@ -1179,10 +1179,10 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
     }
 
     this.logVerbose(
-      "DevcontainerClaudeExecutorに切り替え（fallback devcontainer起動後）",
+      "DevcontainerCodexExecutorに切り替え（fallback devcontainer起動後）",
     );
-    const { DevcontainerClaudeExecutor } = await import("./claude-executor.ts");
-    this.claudeExecutor = new DevcontainerClaudeExecutor(
+    const { DevcontainerCodexExecutor } = await import("./codex-executor.ts");
+    this.codexExecutor = new DevcontainerCodexExecutor(
       this.state.worktreePath,
       this.configuration.isVerbose(),
       ghToken,
@@ -1223,7 +1223,7 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
   }
 
   /**
-   * Claude Code実行を中断する
+   * Codex Code実行を中断する
    */
   async stopExecution(
     onProgress?: (content: string) => Promise<void>,
@@ -1237,14 +1237,14 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
     }
 
     // プロセスハンドルがない場合も早期リターン
-    if (!this.claudeProcess) {
+    if (!this.codexProcess) {
       this.logVerbose("プロセスハンドルがないため中断スキップ", {
-        hasClaudeProcess: false,
+        hasCodexProcess: false,
       });
       return false;
     }
 
-    this.logVerbose("Claude Code実行の中断開始", {
+    this.logVerbose("Codex Code実行の中断開始", {
       workerName: this.state.workerName,
       sessionId: this.state.sessionId,
     });
@@ -1277,7 +1277,7 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
       }
 
       // プロセスにSIGTERMを送信
-      const processToKill = this.claudeProcess; // プロセス参照を保持
+      const processToKill = this.codexProcess; // プロセス参照を保持
       let sigTermSent = false;
 
       try {
@@ -1300,7 +1300,7 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
       if (sigTermSent) {
         timeoutId = setTimeout(() => {
           // プロセスがまだ存在する場合のみSIGKILLを送信
-          if (this.claudeProcess === processToKill) {
+          if (this.codexProcess === processToKill) {
             try {
               processToKill.kill("SIGKILL");
               forcefullyKilled = true;
@@ -1333,9 +1333,9 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
       // 中断メッセージを送信
       if (onProgress) {
         if (forcefullyKilled) {
-          await onProgress("⚠️ Claude Codeの実行を強制終了しました");
+          await onProgress("⚠️ Codex Codeの実行を強制終了しました");
         } else {
-          await onProgress("⛔ Claude Codeの実行を中断しました");
+          await onProgress("⛔ Codex Codeの実行を中断しました");
         }
         await onProgress("💡 新しい指示を送信して作業を続けることができます");
       }
@@ -1360,7 +1360,7 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
       return false;
     } finally {
       // クリーンアップ
-      this.claudeProcess = null;
+      this.codexProcess = null;
       this.abortController = null;
       this.isExecuting = false;
       this.logVerbose("プロセス参照クリーンアップ完了");
@@ -1405,7 +1405,7 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
         }
       }
 
-      worker.claudeExecutor = new DevcontainerClaudeExecutor(
+      worker.codexExecutor = new DevcontainerCodexExecutor(
         workerState.worktreePath,
         verbose || false,
         ghToken,

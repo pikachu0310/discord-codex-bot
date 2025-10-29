@@ -2,7 +2,7 @@ import { assertEquals } from "std/assert/mod.ts";
 import { Worker } from "./worker/worker.ts";
 import { WorkerState, WorkspaceManager } from "./workspace/workspace.ts";
 import { parseRepository } from "./git-utils.ts";
-import { createMockClaudeCommandExecutor } from "../test/test-utils.ts";
+import { createMockCodexCommandExecutor } from "../test/test-utils.ts";
 
 Deno.test("Worker devcontainer機能のテスト", async (t) => {
   const tempDir = await Deno.makeTempDir();
@@ -30,7 +30,7 @@ Deno.test("Worker devcontainer機能のテスト", async (t) => {
     worker = new Worker(
       state,
       workspaceManager,
-      createMockClaudeCommandExecutor("Claude からのテスト応答"),
+      createMockCodexCommandExecutor("Codex からのテスト応答"),
       undefined,
       undefined,
     );
@@ -65,10 +65,10 @@ Deno.test("Worker devcontainer機能のテスト", async (t) => {
       assertEquals(worker.getRepository()?.fullName, "test-org/test-repo");
     });
 
-    await t.step("updateClaudeExecutorForDevcontainerのテスト", async () => {
+    await t.step("updateCodexExecutorForDevcontainerのテスト", async () => {
       // devcontainerが無効な場合は何もしない
       worker.setUseDevcontainer(false);
-      await worker.updateClaudeExecutorForDevcontainer();
+      await worker.updateCodexExecutorForDevcontainer();
       assertEquals(worker.isDevcontainerStarted(), false);
 
       // devcontainerを有効にしてworktreePathを設定
@@ -83,8 +83,8 @@ Deno.test("Worker devcontainer機能のテスト", async (t) => {
       try {
         await worker.setRepository(repository, worktreePath);
 
-        // updateClaudeExecutorForDevcontainerを呼び出す
-        await worker.updateClaudeExecutorForDevcontainer();
+        // updateCodexExecutorForDevcontainerを呼び出す
+        await worker.updateCodexExecutorForDevcontainer();
 
         // devcontainerが起動済みとしてマークされていることを確認
         assertEquals(worker.isDevcontainerStarted(), true);
@@ -103,16 +103,16 @@ Deno.test("Worker devcontainer機能のテスト", async (t) => {
   }
 });
 
-Deno.test("DevcontainerClaudeExecutorのテスト", async (t) => {
+Deno.test("DevcontainerCodexExecutorのテスト", async (t) => {
   await t.step("execInDevcontainerの呼び出し", async () => {
-    // DevcontainerClaudeExecutorは実際のdevcontainer環境が必要なため、
+    // DevcontainerCodexExecutorは実際のdevcontainer環境が必要なため、
     // ここでは構造のテストのみ実行
-    const { DevcontainerClaudeExecutor } = await import(
-      "./worker/claude-executor.ts"
+    const { DevcontainerCodexExecutor } = await import(
+      "./worker/codex-executor.ts"
     );
 
     // プライベートクラスなので、テストは構造確認のみ
     // 実際の動作テストは統合テストで行う
-    assertEquals(typeof DevcontainerClaudeExecutor, "function");
+    assertEquals(typeof DevcontainerCodexExecutor, "function");
   });
 });

@@ -169,7 +169,7 @@ Deno.test("Admin - 初期メッセージの作成", () => {
   assertExists(message);
   assertEquals(typeof message.content, "string");
   assertEquals(
-    message.content.includes("Claude Code Bot スレッドが開始されました"),
+    message.content.includes("Codex Code Bot スレッドが開始されました"),
     true,
   );
   assertEquals(Array.isArray(message.components), true);
@@ -189,7 +189,7 @@ Deno.test("Admin - レートリミットメッセージの作成", () => {
 
   assertEquals(typeof message, "string");
   assertEquals(
-    message.includes("Claude Codeのレートリミットに達しました"),
+    message.includes("Codex Codeのレートリミットに達しました"),
     true,
   );
   assertEquals(message.includes("制限解除予定時刻"), true);
@@ -225,7 +225,7 @@ Deno.test("Admin - fromStateメソッド", async () => {
   }
 });
 
-Deno.test("Admin - Claude Code実行の中断", async () => {
+Deno.test("Admin - Codex Code実行の中断", async () => {
   const tempDir = await Deno.makeTempDir();
   try {
     const workspaceManager = new WorkspaceManager(tempDir);

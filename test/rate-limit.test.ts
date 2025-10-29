@@ -2,9 +2,9 @@ import { assert, assertEquals, assertStringIncludes } from "std/assert/mod.ts";
 import { WorkspaceManager } from "../src/workspace/workspace.ts";
 import { Admin } from "../src/admin/admin.ts";
 import {
-  ClaudeCodeRateLimitError,
-  ClaudeStreamProcessor,
-} from "../src/worker/claude-stream-processor.ts";
+  CodexCodeRateLimitError,
+  CodexStreamProcessor,
+} from "../src/worker/codex-stream-processor.ts";
 import { MessageFormatter } from "../src/worker/message-formatter.ts";
 
 Deno.test("レートリミット検出とメッセージ作成", async () => {
@@ -26,7 +26,7 @@ Deno.test("レートリミット検出とメッセージ作成", async () => {
   // メッセージ内容をチェック（string型に対応）
   assertStringIncludes(
     message,
-    "Claude Codeのレートリミットに達しました",
+    "Codex Codeのレートリミットに達しました",
   );
   assertStringIncludes(message, "制限解除予定時刻");
   assertStringIncludes(
@@ -37,44 +37,44 @@ Deno.test("レートリミット検出とメッセージ作成", async () => {
   await Deno.remove(baseDir, { recursive: true });
 });
 
-Deno.test("ClaudeCodeRateLimitError の作成と属性", () => {
+Deno.test("CodexCodeRateLimitError の作成と属性", () => {
   const timestamp = 1749168000;
-  const error = new ClaudeCodeRateLimitError(timestamp);
+  const error = new CodexCodeRateLimitError(timestamp);
 
-  assertEquals(error.name, "ClaudeCodeRateLimitError");
+  assertEquals(error.name, "CodexCodeRateLimitError");
   assertEquals(error.timestamp, timestamp);
-  assertEquals(error.message, `Claude AI usage limit reached|${timestamp}`);
+  assertEquals(error.message, `Codex AI usage limit reached|${timestamp}`);
 });
 
-Deno.test("ClaudeStreamProcessor でのレートリミット検出", () => {
+Deno.test("CodexStreamProcessor でのレートリミット検出", () => {
   const formatter = new MessageFormatter();
-  const processor = new ClaudeStreamProcessor(formatter);
+  const processor = new CodexStreamProcessor(formatter);
 
   // レートリミットメッセージの検出テスト
   assertEquals(
-    processor.isClaudeCodeRateLimit("Claude AI usage limit reached|1749168000"),
+    processor.isCodexCodeRateLimit("Codex AI usage limit reached|1749168000"),
     true,
   );
   assertEquals(
-    processor.isClaudeCodeRateLimit("Claude AI usage limit reached 1749168000"),
+    processor.isCodexCodeRateLimit("Codex AI usage limit reached 1749168000"),
     true,
   );
   assertEquals(
-    processor.isClaudeCodeRateLimit("Claude AI usage limit reached"),
+    processor.isCodexCodeRateLimit("Codex AI usage limit reached"),
     true,
   );
-  assertEquals(processor.isClaudeCodeRateLimit("Normal response"), false);
+  assertEquals(processor.isCodexCodeRateLimit("Normal response"), false);
 
   // タイムスタンプ抽出テスト
   assertEquals(
     processor.extractRateLimitTimestamp(
-      "Claude AI usage limit reached|1749168000",
+      "Codex AI usage limit reached|1749168000",
     ),
     1749168000,
   );
   assertEquals(
     processor.extractRateLimitTimestamp(
-      "Claude AI usage limit reached 1749168000",
+      "Codex AI usage limit reached 1749168000",
     ),
     1749168000,
   );

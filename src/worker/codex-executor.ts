@@ -1,17 +1,17 @@
-import { ClaudeStreamProcessor } from "./claude-stream-processor.ts";
+import { CodexStreamProcessor } from "./codex-stream-processor.ts";
 import { MessageFormatter } from "./message-formatter.ts";
 import { err, ok, Result } from "neverthrow";
-import type { ClaudeExecutorError } from "./types.ts";
+import type { CodexExecutorError } from "./types.ts";
 
-export interface ClaudeCommandExecutor {
+export interface CodexCommandExecutor {
   /**
-   * Claude CLIをストリーミングモードで実行する
-   * @param args Claude CLIに渡すコマンドライン引数
+   * Codex CLIをストリーミングモードで実行する
+   * @param args Codex CLIに渡すコマンドライン引数
    * @param cwd 作業ディレクトリ
    * @param onData 標準出力データを受信したときのコールバック
    * @param abortSignal プロセスを中断するためのシグナル
    * @param onProcessStart プロセスが正常に生成された場合のみ呼ばれるコールバック。プロセス生成に失敗した場合は呼ばれない
-   * @param env Claude CLIに渡す追加の環境変数
+   * @param env Codex CLIに渡す追加の環境変数
    * @returns 実行結果（終了コードと標準エラー出力）またはエラー
    */
   executeStreaming(
@@ -21,10 +21,10 @@ export interface ClaudeCommandExecutor {
     abortSignal?: AbortSignal,
     onProcessStart?: (childProcess: Deno.ChildProcess) => void,
     env?: Record<string, string>,
-  ): Promise<Result<{ code: number; stderr: Uint8Array }, ClaudeExecutorError>>;
+  ): Promise<Result<{ code: number; stderr: Uint8Array }, CodexExecutorError>>;
 }
 
-export class DefaultClaudeCommandExecutor implements ClaudeCommandExecutor {
+export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
   private readonly verbose: boolean;
 
   constructor(verbose = false) {
@@ -39,14 +39,14 @@ export class DefaultClaudeCommandExecutor implements ClaudeCommandExecutor {
     onProcessStart?: (childProcess: Deno.ChildProcess) => void,
     env?: Record<string, string>,
   ): Promise<
-    Result<{ code: number; stderr: Uint8Array }, ClaudeExecutorError>
+    Result<{ code: number; stderr: Uint8Array }, CodexExecutorError>
   > {
     // VERBOSEモードでコマンド詳細ログ
     if (this.verbose) {
       console.log(
         `[${
           new Date().toISOString()
-        }] [DefaultClaudeCommandExecutor] Claudeコマンド実行:`,
+        }] [DefaultCodexCommandExecutor] Codexコマンド実行:`,
       );
       console.log(`  作業ディレクトリ: ${cwd}`);
       console.log(`  引数: ${JSON.stringify(args)}`);
@@ -59,7 +59,7 @@ export class DefaultClaudeCommandExecutor implements ClaudeCommandExecutor {
       // 現在の環境変数に追加の環境変数をマージ
       const commandEnv = env ? { ...Deno.env.toObject(), ...env } : undefined;
 
-      const command = new Deno.Command("claude", {
+      const command = new Deno.Command("codex", {
         args,
         cwd,
         stdout: "piped",
@@ -73,8 +73,8 @@ export class DefaultClaudeCommandExecutor implements ClaudeCommandExecutor {
       // プロセス開始コールバック
       onProcessStart?.(process);
 
-      // ClaudeStreamProcessorのprocessStreamsメソッドを使用
-      const processor = new ClaudeStreamProcessor(
+      // CodexStreamProcessorのprocessStreamsメソッドを使用
+      const processor = new CodexStreamProcessor(
         new MessageFormatter(), // formatterインスタンスを渡す
       );
 
@@ -89,7 +89,7 @@ export class DefaultClaudeCommandExecutor implements ClaudeCommandExecutor {
         console.log(
           `[${
             new Date().toISOString()
-          }] [DefaultClaudeCommandExecutor] 実行完了:`,
+          }] [DefaultCodexCommandExecutor] 実行完了:`,
         );
         console.log(`  終了コード: ${code}`);
         console.log(`  stderr長: ${stderrOutput.length}バイト`);
@@ -112,7 +112,7 @@ export class DefaultClaudeCommandExecutor implements ClaudeCommandExecutor {
   }
 }
 
-export class DevcontainerClaudeExecutor implements ClaudeCommandExecutor {
+export class DevcontainerCodexExecutor implements CodexCommandExecutor {
   private readonly repositoryPath: string;
   private readonly verbose: boolean;
   private readonly ghToken?: string;
@@ -135,13 +135,13 @@ export class DevcontainerClaudeExecutor implements ClaudeCommandExecutor {
     onProcessStart?: (childProcess: Deno.ChildProcess) => void,
     additionalEnv?: Record<string, string>,
   ): Promise<
-    Result<{ code: number; stderr: Uint8Array }, ClaudeExecutorError>
+    Result<{ code: number; stderr: Uint8Array }, CodexExecutorError>
   > {
     const argsWithDefaults = [
       "exec",
       "--workspace-folder",
       this.repositoryPath,
-      "claude",
+      "codex",
       ...args,
     ];
     // VERBOSEモードでdevcontainerコマンド詳細ログ
@@ -149,7 +149,7 @@ export class DevcontainerClaudeExecutor implements ClaudeCommandExecutor {
       console.log(
         `[${
           new Date().toISOString()
-        }] [DevcontainerClaudeExecutor] devcontainerコマンド実行:`,
+        }] [DevcontainerCodexExecutor] devcontainerコマンド実行:`,
       );
       console.log(`  リポジトリパス: ${this.repositoryPath}`);
       console.log(`  引数: ${JSON.stringify(argsWithDefaults)}`);
@@ -159,7 +159,7 @@ export class DevcontainerClaudeExecutor implements ClaudeCommandExecutor {
     }
 
     try {
-      // devcontainer内でclaudeコマンドをストリーミング実行
+      // devcontainer内でcodexコマンドをストリーミング実行
       const env: Record<string, string> = {
         ...Deno.env.toObject(),
         DOCKER_DEFAULT_PLATFORM: "linux/amd64",
@@ -193,8 +193,8 @@ export class DevcontainerClaudeExecutor implements ClaudeCommandExecutor {
         onProcessStart(process);
       }
 
-      // ClaudeStreamProcessorのprocessStreamsメソッドを使用
-      const processor = new ClaudeStreamProcessor(
+      // CodexStreamProcessorのprocessStreamsメソッドを使用
+      const processor = new CodexStreamProcessor(
         new MessageFormatter(), // formatterインスタンスを渡す
       );
 
@@ -209,7 +209,7 @@ export class DevcontainerClaudeExecutor implements ClaudeCommandExecutor {
         console.log(
           `[${
             new Date().toISOString()
-          }] [DevcontainerClaudeExecutor] 実行完了:`,
+          }] [DevcontainerCodexExecutor] 実行完了:`,
         );
         console.log(`  終了コード: ${code}`);
         console.log(`  stderr長: ${stderrOutput.length}バイト`);

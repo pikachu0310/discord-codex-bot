@@ -63,7 +63,7 @@ Deno.test("getEnv - オプション環境変数が正しく読み込まれる", 
   Deno.env.set("DISCORD_TOKEN", "test-token");
   Deno.env.set("WORK_BASE_DIR", "/test/work");
   Deno.env.set("VERBOSE", "true");
-  Deno.env.set("CLAUDE_APPEND_SYSTEM_PROMPT", "test prompt");
+  Deno.env.set("CODEX_APPEND_SYSTEM_PROMPT", "test prompt");
   Deno.env.set("GEMINI_API_KEY", "test-api-key");
   Deno.env.set("PLAMO_TRANSLATOR_URL", "http://localhost:8080");
 
@@ -72,7 +72,7 @@ Deno.test("getEnv - オプション環境変数が正しく読み込まれる", 
   assertEquals(result.isOk(), true);
   if (result.isOk()) {
     assertEquals(result.value.VERBOSE, true);
-    assertEquals(result.value.CLAUDE_APPEND_SYSTEM_PROMPT, "test prompt");
+    assertEquals(result.value.CODEX_APPEND_SYSTEM_PROMPT, "test prompt");
     assertEquals(result.value.GEMINI_API_KEY, "test-api-key");
     assertEquals(result.value.PLAMO_TRANSLATOR_URL, "http://localhost:8080");
   }
@@ -81,7 +81,7 @@ Deno.test("getEnv - オプション環境変数が正しく読み込まれる", 
   Deno.env.delete("DISCORD_TOKEN");
   Deno.env.delete("WORK_BASE_DIR");
   Deno.env.delete("VERBOSE");
-  Deno.env.delete("CLAUDE_APPEND_SYSTEM_PROMPT");
+  Deno.env.delete("CODEX_APPEND_SYSTEM_PROMPT");
   Deno.env.delete("GEMINI_API_KEY");
   Deno.env.delete("PLAMO_TRANSLATOR_URL");
 });

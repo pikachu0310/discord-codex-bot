@@ -26,8 +26,8 @@ export class SchemaValidationError extends Error {
   }
 }
 
-// Claude Code SDK message schema based on https://docs.anthropic.com/en/docs/claude-code/sdk#message-schema
-export type ClaudeStreamMessage =
+// Codex Code SDK message schema based on https://docs.anthropic.com/en/docs/codex-code/sdk#message-schema
+export type CodexStreamMessage =
   // アシスタントメッセージ
   | {
     type: "assistant";
@@ -107,22 +107,22 @@ export type ClaudeStreamMessage =
     permissionMode: "default" | "acceptEdits" | "bypassPermissions" | "plan";
   };
 
-export class ClaudeCodeRateLimitError extends Error {
+export class CodexCodeRateLimitError extends Error {
   public readonly timestamp: number;
   public readonly retryAt: number;
 
   constructor(timestamp: number) {
-    super(`Claude AI usage limit reached|${timestamp}`);
-    this.name = "ClaudeCodeRateLimitError";
+    super(`Codex AI usage limit reached|${timestamp}`);
+    this.name = "CodexCodeRateLimitError";
     this.timestamp = timestamp;
     this.retryAt = timestamp;
   }
 }
 
 /**
- * Claude CLIのストリーミング出力を処理するクラス
+ * Codex CLIのストリーミング出力を処理するクラス
  */
-export class ClaudeStreamProcessor {
+export class CodexStreamProcessor {
   private readonly formatter: MessageFormatter;
 
   constructor(formatter: MessageFormatter) {
@@ -132,14 +132,14 @@ export class ClaudeStreamProcessor {
   /**
    * JSONライン文字列を安全に解析して型検証を行う
    * @param line JSON文字列の行
-   * @returns パースされ、検証されたClaudeStreamMessage
+   * @returns パースされ、検証されたCodexStreamMessage
    * @throws {JsonParseError} JSON解析に失敗した場合
    * @throws {SchemaValidationError} スキーマ検証に失敗した場合
    */
-  parseJsonLine(line: string): ClaudeStreamMessage {
+  parseJsonLine(line: string): CodexStreamMessage {
     // JSON解析
     try {
-      return JSON.parse(line) as ClaudeStreamMessage;
+      return JSON.parse(line) as CodexStreamMessage;
     } catch (error) {
       throw new JsonParseError(line, error);
     }
@@ -168,7 +168,7 @@ export class ClaudeStreamProcessor {
           }
         }
       } catch (error) {
-        if (error instanceof ClaudeCodeRateLimitError) {
+        if (error instanceof CodexCodeRateLimitError) {
           throw error; // レートリミットエラーはそのまま投げる
         }
 
@@ -212,9 +212,9 @@ export class ClaudeStreamProcessor {
   }
 
   /**
-   * JSONL行からClaude Codeの実際の出力メッセージを抽出する
+   * JSONL行からCodex Codeの実際の出力メッセージを抽出する
    */
-  extractOutputMessage(parsed: ClaudeStreamMessage): string | null {
+  extractOutputMessage(parsed: CodexStreamMessage): string | null {
     switch (parsed.type) {
       case "assistant":
         // assistantメッセージの処理
@@ -331,7 +331,7 @@ export class ClaudeStreamProcessor {
    * systemメッセージの処理
    */
   private extractSystemMessage(
-    parsed: ClaudeStreamMessage,
+    parsed: CodexStreamMessage,
   ): string | null {
     if (parsed.type === "system" && parsed.subtype === "init") {
       const tools = parsed.tools?.join(", ") || "なし";
@@ -344,11 +344,11 @@ export class ClaudeStreamProcessor {
   }
 
   /**
-   * Claude Codeのレートリミットメッセージかを判定する
+   * Codex Codeのレートリミットメッセージかを判定する
    */
-  isClaudeCodeRateLimit(result: string): boolean {
+  isCodexCodeRateLimit(result: string): boolean {
     // より包括的な検知を行う
-    return result.includes("Claude AI usage limit reached");
+    return result.includes("Codex AI usage limit reached");
   }
 
   /**
@@ -356,7 +356,7 @@ export class ClaudeStreamProcessor {
    */
   extractRateLimitTimestamp(result: string): number | null {
     // より柔軟な正規表現で検知（パイプまたはスペース区切り）
-    const match = result.match(/Claude AI usage limit reached[\|\s](\d+)/);
+    const match = result.match(/Codex AI usage limit reached[\|\s](\d+)/);
     if (match) {
       return parseInt(match[1], 10);
     }

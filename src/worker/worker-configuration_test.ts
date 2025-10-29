@@ -29,9 +29,9 @@ Deno.test("WorkerConfiguration - verboseモード設定", () => {
   assertEquals(config.isVerbose(), true);
 });
 
-Deno.test("WorkerConfiguration - buildClaudeArgs - 基本", () => {
+Deno.test("WorkerConfiguration - buildCodexArgs - 基本", () => {
   const config = new WorkerConfiguration();
-  const args = config.buildClaudeArgs("テストプロンプト");
+  const args = config.buildCodexArgs("テストプロンプト");
 
   assertEquals(args, [
     "-p",
@@ -42,34 +42,34 @@ Deno.test("WorkerConfiguration - buildClaudeArgs - 基本", () => {
   ]);
 });
 
-Deno.test("WorkerConfiguration - buildClaudeArgs - verboseモード", () => {
+Deno.test("WorkerConfiguration - buildCodexArgs - verboseモード", () => {
   const config = new WorkerConfiguration(true);
-  const args = config.buildClaudeArgs("テストプロンプト");
+  const args = config.buildCodexArgs("テストプロンプト");
 
   assertEquals(args.includes("--verbose"), true);
 });
 
 Deno.test.ignore(
-  "WorkerConfiguration - buildClaudeArgs - セッション継続",
+  "WorkerConfiguration - buildCodexArgs - セッション継続",
   () => {
     const config = new WorkerConfiguration();
-    const args = config.buildClaudeArgs("テストプロンプト", "session-123");
+    const args = config.buildCodexArgs("テストプロンプト", "session-123");
 
     assertEquals(args.includes("--resume"), true);
     assertEquals(args.includes("session-123"), true);
   },
 );
 
-Deno.test("WorkerConfiguration - buildClaudeArgs - 追加システムプロンプト", () => {
+Deno.test("WorkerConfiguration - buildCodexArgs - 追加システムプロンプト", () => {
   const config = new WorkerConfiguration(false, "追加プロンプト");
-  const args = config.buildClaudeArgs("テストプロンプト");
+  const args = config.buildCodexArgs("テストプロンプト");
 
   assertEquals(args.includes("--append-system-prompt=追加プロンプト"), true);
 });
 
-Deno.test("WorkerConfiguration - buildClaudeArgs - 空白を含む追加システムプロンプト", () => {
+Deno.test("WorkerConfiguration - buildCodexArgs - 空白を含む追加システムプロンプト", () => {
   const config = new WorkerConfiguration(false, "追加の システム プロンプト");
-  const args = config.buildClaudeArgs("テストプロンプト");
+  const args = config.buildCodexArgs("テストプロンプト");
 
   assertEquals(
     args.includes("--append-system-prompt=追加の システム プロンプト"),

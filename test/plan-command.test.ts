@@ -1,7 +1,7 @@
 import { assertEquals } from "jsr:@std/assert";
 import { Admin } from "../src/admin/admin.ts";
 import { WorkspaceManager } from "../src/workspace/workspace.ts";
-import { DefaultClaudeCommandExecutor } from "../src/worker/claude-executor.ts";
+import { DefaultCodexCommandExecutor } from "../src/worker/codex-executor.ts";
 import { Worker } from "../src/worker/worker.ts";
 
 // テスト用のディレクトリを作成
@@ -82,8 +82,8 @@ Deno.test({
       lastActiveAt: new Date().toISOString(),
     };
 
-    const claudeExecutor = new DefaultClaudeCommandExecutor(false);
-    const worker = new Worker(workerState, workspaceManager, claudeExecutor);
+    const codexExecutor = new DefaultCodexCommandExecutor(false);
+    const worker = new Worker(workerState, workspaceManager, codexExecutor);
 
     // 初期状態では Plan モードは無効
     assertEquals(worker.isPlanMode(), false);

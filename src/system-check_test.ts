@@ -24,10 +24,10 @@ Deno.test("システム要件チェック機能", async (t) => {
       assertEquals(gitResult?.command, "git");
       assertEquals(typeof gitResult?.available, "boolean");
 
-      // claudeコマンドの結果を確認
-      const claudeResult = value.results.find((r) => r.command === "claude");
-      assertEquals(claudeResult?.command, "claude");
-      assertEquals(typeof claudeResult?.available, "boolean");
+      // codexコマンドの結果を確認
+      const codexResult = value.results.find((r) => r.command === "codex");
+      assertEquals(codexResult?.command, "codex");
+      assertEquals(typeof codexResult?.available, "boolean");
 
       // ghコマンドの結果を確認（推奨コマンド）
       const ghResult = value.results.find((r) => r.command === "gh");
@@ -58,7 +58,7 @@ Deno.test("システム要件チェック機能", async (t) => {
         version: "git version 2.39.0",
       },
       {
-        command: "claude",
+        command: "codex",
         available: false,
         error: "command not found",
       },
@@ -74,7 +74,7 @@ Deno.test("システム要件チェック機能", async (t) => {
       },
     ];
 
-    const missingRequired = ["claude"];
+    const missingRequired = ["codex"];
     const formatted = formatSystemCheckResults(mockResults, missingRequired);
 
     // フォーマットされた結果の基本チェック
@@ -83,7 +83,7 @@ Deno.test("システム要件チェック機能", async (t) => {
     assertEquals(formatted.includes("【必須コマンド】"), true);
     assertEquals(formatted.includes("【推奨コマンド】"), true);
     assertEquals(formatted.includes("✅ git"), true);
-    assertEquals(formatted.includes("❌ claude"), true);
+    assertEquals(formatted.includes("❌ codex"), true);
     assertEquals(formatted.includes("✅ gh"), true);
     assertEquals(formatted.includes("⚠️ devcontainer"), true);
     assertEquals(
@@ -100,9 +100,9 @@ Deno.test("システム要件チェック機能", async (t) => {
         version: "git version 2.39.0",
       },
       {
-        command: "claude",
+        command: "codex",
         available: true,
-        version: "claude version 1.0.0",
+        version: "codex version 1.0.0",
       },
       {
         command: "gh",

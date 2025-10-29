@@ -1,7 +1,7 @@
 import { assertEquals } from "std/assert/mod.ts";
 import { Worker } from "../src/worker/worker.ts";
 import {
-  createMockStreamingClaudeCommandExecutor,
+  createMockStreamingCodexCommandExecutor,
   createTestRepository,
   createTestWorkerState,
   createTestWorkspaceManager,
@@ -14,13 +14,13 @@ Deno.test("Worker - ストリーミング進捗コールバックが呼ばれる
   try {
     const streamData = [
       '{"type":"system","subtype":"init","session_id":"test-session","tools":["Read","Write"]}\n',
-      '{"type":"assistant","message":{"id":"msg_001","type":"message","role":"assistant","model":"claude-3-opus","content":[{"type":"text","text":"こんにちは。"}],"stop_reason":"end_turn"},"session_id":"test-session"}\n',
-      '{"type":"assistant","message":{"id":"msg_002","type":"message","role":"assistant","model":"claude-3-opus","content":[{"type":"text","text":"テストメッセージです。\\n"}],"stop_reason":"end_turn"},"session_id":"test-session"}\n',
-      '{"type":"assistant","message":{"id":"msg_003","type":"message","role":"assistant","model":"claude-3-opus","content":[{"type":"text","text":"これは進捗表示のテストです。"}],"stop_reason":"end_turn"},"session_id":"test-session"}\n',
+      '{"type":"assistant","message":{"id":"msg_001","type":"message","role":"assistant","model":"codex-3-opus","content":[{"type":"text","text":"こんにちは。"}],"stop_reason":"end_turn"},"session_id":"test-session"}\n',
+      '{"type":"assistant","message":{"id":"msg_002","type":"message","role":"assistant","model":"codex-3-opus","content":[{"type":"text","text":"テストメッセージです。\\n"}],"stop_reason":"end_turn"},"session_id":"test-session"}\n',
+      '{"type":"assistant","message":{"id":"msg_003","type":"message","role":"assistant","model":"codex-3-opus","content":[{"type":"text","text":"これは進捗表示のテストです。"}],"stop_reason":"end_turn"},"session_id":"test-session"}\n',
       '{"type":"result","subtype":"success","is_error":false,"result":"完了しました。","session_id":"test-session"}\n',
     ];
 
-    const mockExecutor = createMockStreamingClaudeCommandExecutor();
+    const mockExecutor = createMockStreamingCodexCommandExecutor();
 
     // ストリーミングデータを設定
     const allData = streamData.join("");
@@ -79,7 +79,7 @@ Deno.test("Worker - エラー時のストリーミング処理", async () => {
       '{"type":"error","error":"エラーが発生しました"}\n',
     ];
 
-    const mockExecutor = createMockStreamingClaudeCommandExecutor();
+    const mockExecutor = createMockStreamingCodexCommandExecutor();
 
     // エラーを返すように設定
     const allData = streamData.join("");
@@ -113,7 +113,7 @@ Deno.test("Worker - エラー時のストリーミング処理", async () => {
     if (result.isOk()) {
       assertEquals(
         result.value,
-        "Claude からの応答を取得できませんでした。",
+        "Codex からの応答を取得できませんでした。",
       );
     }
 
@@ -131,11 +131,11 @@ Deno.test("Worker - 進捗コールバックなしでも動作する", async () 
   try {
     const streamData = [
       '{"type":"system","subtype":"init","session_id":"test-session","tools":[]}\n',
-      '{"type":"assistant","message":{"id":"msg_001","type":"message","role":"assistant","model":"claude-3-opus","content":[{"type":"text","text":"コールバックなしのテスト"}],"stop_reason":"end_turn"},"session_id":"test-session"}\n',
+      '{"type":"assistant","message":{"id":"msg_001","type":"message","role":"assistant","model":"codex-3-opus","content":[{"type":"text","text":"コールバックなしのテスト"}],"stop_reason":"end_turn"},"session_id":"test-session"}\n',
       '{"type":"result","subtype":"success","is_error":false,"result":"完了","session_id":"test-session"}\n',
     ];
 
-    const mockExecutor = createMockStreamingClaudeCommandExecutor();
+    const mockExecutor = createMockStreamingCodexCommandExecutor();
 
     const allData = streamData.join("");
     mockExecutor.setResponse("no callback test", allData);

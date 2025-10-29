@@ -229,17 +229,17 @@ export class MessageRouter {
           "リポジトリが設定されていません。/start コマンドでリポジトリを指定してください。",
         );
       } else if (error.type === "CONFIGURATION_INCOMPLETE") {
-        let message = "⚠️ **Claude Code実行環境の設定が必要です**\n\n";
+        let message = "⚠️ **Codex Code実行環境の設定が必要です**\n\n";
         message += "**実行環境を選択してください:**\n";
         message +=
           "• `/config devcontainer on` - devcontainer環境で実行（推奨）\n";
         message += "• `/config devcontainer off` - ホスト環境で実行\n\n";
-        message += "設定が完了すると、Claude Codeを実行できるようになります。";
+        message += "設定が完了すると、Codex Codeを実行できるようになります。";
         return ok(message);
       } else {
         // その他のエラーの場合
         switch (error.type) {
-          case "CLAUDE_EXECUTION_FAILED":
+          case "CODEX_EXECUTION_FAILED":
           case "WORKSPACE_ERROR":
           case "STREAM_PROCESSING_ERROR":
           case "TRANSLATION_FAILED":
@@ -269,7 +269,7 @@ export class MessageRouter {
     threadId: string,
     timestamp: number,
   ): Promise<string | DiscordMessage> {
-    this.logVerbose("Claude Codeレートリミット検出", {
+    this.logVerbose("Codex Codeレートリミット検出", {
       threadId,
       timestamp,
     });

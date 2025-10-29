@@ -1,12 +1,12 @@
 import { assertEquals } from "https://deno.land/std@0.208.0/testing/asserts.ts";
 import { describe, it } from "https://deno.land/std@0.208.0/testing/bdd.ts";
 import { Worker } from "./worker/worker.ts";
-import { ClaudeCommandExecutor } from "./worker/claude-executor.ts";
+import { CodexCommandExecutor } from "./worker/codex-executor.ts";
 import { WorkerState, WorkspaceManager } from "./workspace/workspace.ts";
 import { parseRepository } from "./git-utils.ts";
 import { ok } from "neverthrow";
 
-class MockClaudeExecutor implements ClaudeCommandExecutor {
+class MockCodexExecutor implements CodexCommandExecutor {
   capturedArgs: string[] = [];
 
   async executeStreaming(
@@ -17,7 +17,7 @@ class MockClaudeExecutor implements ClaudeCommandExecutor {
     this.capturedArgs = args;
     console.log("MockExecutor called with args:", args);
 
-    // Claude実行時のエラーを防ぐため、verboseがない場合はエラーを返す
+    // Codex実行時のエラーを防ぐため、verboseがない場合はエラーを返す
     const hasVerbose = args.includes("--verbose");
     const hasStreamJson = args.includes("--output-format") &&
       args[args.indexOf("--output-format") + 1] === "stream-json";
@@ -61,7 +61,7 @@ describe("Worker --append-system-prompt オプション", () => {
       const workspaceManager = new WorkspaceManager(tempDir);
       await workspaceManager.initialize();
 
-      const mockExecutor = new MockClaudeExecutor();
+      const mockExecutor = new MockCodexExecutor();
       const appendPrompt = "追加のシステムプロンプトです";
 
       // Gitリポジトリを作成
@@ -108,7 +108,7 @@ describe("Worker --append-system-prompt オプション", () => {
         const savedExecutor = mockExecutor;
         worker.setUseDevcontainer(false);
         // executorを復元（TypeScriptの制限を回避）
-        Object.defineProperty(worker, "claudeExecutor", {
+        Object.defineProperty(worker, "codexExecutor", {
           value: savedExecutor,
           writable: true,
           configurable: true,
@@ -139,7 +139,7 @@ describe("Worker --append-system-prompt オプション", () => {
       const workspaceManager = new WorkspaceManager(tempDir);
       await workspaceManager.initialize();
 
-      const mockExecutor = new MockClaudeExecutor();
+      const mockExecutor = new MockCodexExecutor();
 
       // Gitリポジトリを作成
       const repoPath = await Deno.makeTempDir();
@@ -182,7 +182,7 @@ describe("Worker --append-system-prompt オプション", () => {
         const savedExecutor = mockExecutor;
         worker.setUseDevcontainer(false);
         // executorを復元
-        Object.defineProperty(worker, "claudeExecutor", {
+        Object.defineProperty(worker, "codexExecutor", {
           value: savedExecutor,
           writable: true,
           configurable: true,

@@ -109,7 +109,7 @@ Deno.test("/stop コマンド統合テスト - リポジトリ設定後のメッ
       undefined,
     );
 
-    // モックClaude CLIではないので、実際のコマンドを実行しないため、エラーになるか確認
+    // モックCodex CLIではないので、実際のコマンドを実行しないため、エラーになるか確認
     assert(
       messageResult.isOk() || messageResult.isErr(),
       "結果が返されませんでした",

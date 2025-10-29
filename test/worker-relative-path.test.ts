@@ -114,7 +114,7 @@ Deno.test("MessageFormatter.getRelativePath - Discord表示時の実際の使用
   try {
     // 実際のワークツリーパス例
     const worktreePath =
-      "/Users/to-hutohu/workspace/claude-code-repos/worktrees/1234567890";
+      "/Users/to-hutohu/workspace/codex-code-repos/worktrees/1234567890";
     const formatter = new TestMessageFormatter(worktreePath);
 
     // Read ツールの場合

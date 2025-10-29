@@ -3,9 +3,9 @@ import { Worker } from "../src/worker/worker.ts";
 import { parseRepository } from "../src/git-utils.ts";
 import {
   captureConsoleOutput,
-  createErrorMockClaudeCommandExecutor,
-  createMockClaudeCommandExecutor,
-  createMockStreamingClaudeCommandExecutor,
+  createErrorMockCodexCommandExecutor,
+  createMockCodexCommandExecutor,
+  createMockStreamingCodexCommandExecutor,
   createTestRepository,
   createTestWorker,
   createTestWorkerState,
@@ -15,7 +15,7 @@ import {
 Deno.test("Worker - メッセージを受け取って返信する（リポジトリ未設定）", async () => {
   const workspace = await createTestWorkspaceManager();
   const workerName = "happy-panda";
-  const executor = createMockClaudeCommandExecutor();
+  const executor = createMockCodexCommandExecutor();
 
   try {
     const worker = await createTestWorker(workerName, workspace, executor);
@@ -46,7 +46,7 @@ Deno.test("Worker - 名前を取得できる", async () => {
 
 Deno.test("Worker - 空のメッセージも処理できる", async () => {
   const workspace = await createTestWorkspaceManager();
-  const executor = createMockClaudeCommandExecutor();
+  const executor = createMockCodexCommandExecutor();
 
   try {
     const worker = await createTestWorker("test-worker", workspace, executor);
@@ -86,7 +86,7 @@ Deno.test("Worker - リポジトリ情報を設定・取得できる", async () 
 
 Deno.test("Worker - 設定未完了時の定型メッセージ", async () => {
   const workspace = await createTestWorkspaceManager();
-  const executor = createMockClaudeCommandExecutor();
+  const executor = createMockCodexCommandExecutor();
 
   try {
     // devcontainer設定が未完了のWorkerStateを作成
@@ -126,7 +126,7 @@ Deno.test("Worker - 設定未完了時の定型メッセージ", async () => {
 Deno.test("Worker - リポジトリ設定後のメッセージ処理", async () => {
   const workspace = await createTestWorkspaceManager();
   const mockResponse = "これはリポジトリ設定後のモック応答です。";
-  const executor = createMockClaudeCommandExecutor(mockResponse);
+  const executor = createMockCodexCommandExecutor(mockResponse);
 
   try {
     const worker = await createTestWorker("test-worker", workspace, executor);
@@ -177,7 +177,7 @@ Deno.test("Worker - verboseモードが正しく設定される", async () => {
 
 Deno.test("Worker - verboseモードでログが出力される", async () => {
   const workspace = await createTestWorkspaceManager();
-  const executor = createMockClaudeCommandExecutor();
+  const executor = createMockCodexCommandExecutor();
 
   let logOutput = "";
   const originalLog = console.log;
@@ -233,7 +233,7 @@ Deno.test("Worker - verboseモード無効時はログが出力されない", as
   }
 });
 
-Deno.test("Worker - Claude Codeの実際の出力が行ごとに送信される", async () => {
+Deno.test("Worker - Codex Codeの実際の出力が行ごとに送信される", async () => {
   const workspace = await createTestWorkspaceManager();
   const repositoryResult = parseRepository("test/repo");
   if (repositoryResult.isErr()) {
@@ -242,7 +242,7 @@ Deno.test("Worker - Claude Codeの実際の出力が行ごとに送信される"
   const repository = repositoryResult.value;
   const repoPath = "/test/repo";
 
-  const mockExecutor = createMockStreamingClaudeCommandExecutor();
+  const mockExecutor = createMockStreamingCodexCommandExecutor();
   // モックレスポンスは最終的に"モックレスポンス"を返す
   mockExecutor.setResponse("test", "モックレスポンス");
 
@@ -285,7 +285,7 @@ Deno.test("Worker - エラーメッセージも正しく出力される", async 
   }
   const repository = repositoryResult.value;
   const repoPath = "/test/repo";
-  const errorExecutor = createErrorMockClaudeCommandExecutor("モックエラー", 1);
+  const errorExecutor = createErrorMockCodexCommandExecutor("モックエラー", 1);
 
   try {
     const worker = await createTestWorker(
@@ -310,8 +310,8 @@ Deno.test("Worker - エラーメッセージも正しく出力される", async 
     // Result型の確認 - エラーの場合
     assertEquals(result.isErr(), true);
     if (result.isErr()) {
-      assertEquals(result.error.type, "CLAUDE_EXECUTION_FAILED");
-      if (result.error.type === "CLAUDE_EXECUTION_FAILED") {
+      assertEquals(result.error.type, "CODEX_EXECUTION_FAILED");
+      if (result.error.type === "CODEX_EXECUTION_FAILED") {
         assertEquals(result.error.error.includes("モックエラー"), true);
       }
     }

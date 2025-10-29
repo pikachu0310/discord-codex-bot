@@ -44,8 +44,8 @@ const REQUIRED_COMMANDS: SystemRequirement[] = [
     required: true,
   },
   {
-    command: "claude",
-    description: "Claude CLI tool",
+    command: "codex",
+    description: "Codex CLI tool",
     required: true,
   },
 ];
@@ -211,7 +211,7 @@ export function formatSystemCheckResults(
     lines.push("インストール方法:");
     lines.push("  - Git: https://git-scm.com/downloads");
     lines.push(
-      "  - Claude CLI: https://docs.anthropic.com/en/docs/claude-code",
+      "  - Codex CLI: https://docs.anthropic.com/en/docs/codex-code",
     );
   }
 

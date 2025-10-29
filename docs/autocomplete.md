@@ -116,7 +116,7 @@ async function searchRepositories(query: string): Promise<GitHubRepository[]> {
       {
         headers: {
           "Accept": "application/vnd.github.v3+json",
-          "User-Agent": "discord-claude-code-bot",
+          "User-Agent": "discord-codex-code-bot",
           // 認証トークンがある場合
           // 'Authorization': `Bearer ${process.env.GITHUB_TOKEN}`
         },
@@ -214,5 +214,5 @@ class RepositorySearchCache {
 2. **Phase 2**: キャッシュ機能の追加
 3. **Phase 3**: ブランチやタグの候補追加
 
-この調査結果を基に、discord-claude-code
+この調査結果を基に、discord-codex-code
 プロジェクトにオートコンプリート機能を段階的に実装することが可能です。
