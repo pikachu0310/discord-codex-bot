@@ -3,6 +3,19 @@ import { MessageFormatter } from "./message-formatter.ts";
 import { err, ok, Result } from "neverthrow";
 import type { CodexExecutorError } from "./types.ts";
 
+function shellQuote(arg: string): string {
+  if (/^[A-Za-z0-9_\/_\.\-]+$/.test(arg)) {
+    return arg;
+  }
+
+  return `'${arg.replace(/'/g, "'\\''")}'`;
+}
+
+function buildScriptCommandArgs(args: string[]): string[] {
+  const commandString = ["codex", ...args].map(shellQuote).join(" ");
+  return ["-q", "-c", commandString, "/dev/null"];
+}
+
 export interface CodexCommandExecutor {
   /**
    * Codex CLIをストリーミングモードで実行する
@@ -63,7 +76,7 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
 
       const binary = options?.usePty ? "script" : "codex";
       const commandArgs = options?.usePty
-        ? ["-q", "/dev/null", "codex", ...args]
+        ? buildScriptCommandArgs(args)
         : args;
 
       if (this.verbose) {
@@ -170,10 +183,7 @@ export class DevcontainerCodexExecutor implements CodexCommandExecutor {
         "--workspace-folder",
         this.repositoryPath,
         "script",
-        "-q",
-        "/dev/null",
-        "codex",
-        ...args,
+        ...buildScriptCommandArgs(args),
       ]
       : [
         "exec",
