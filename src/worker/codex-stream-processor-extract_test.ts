@@ -1,5 +1,6 @@
 import { assertEquals } from "https://deno.land/std@0.208.0/testing/asserts.ts";
 import {
+  type CodexExecJsonEvent,
   type CodexStreamMessage,
   CodexStreamProcessor,
 } from "./codex-stream-processor.ts";
@@ -410,3 +411,76 @@ Deno.test("extractOutputMessage - 中程度の長さの結果を先頭末尾で�
   assertEquals(result?.includes("行省略"), true);
   assertEquals(result?.includes("行50: 処理結果"), true);
 });
+
+Deno.test(
+  "extractSessionId - response.session.id をフォールバックとして取得する",
+  () => {
+    const formatter = new MessageFormatter();
+    const processor = new CodexStreamProcessor(formatter);
+
+    const event: CodexExecJsonEvent = {
+      type: "turn.completed",
+      response: {
+        session: {
+          id: "nested-session-id",
+          path: "/tmp/workspaces/nested-session-id",
+        },
+      },
+    };
+
+    const sessionId = processor.extractSessionId(event);
+    assertEquals(sessionId, "nested-session-id");
+  },
+);
+
+Deno.test(
+  "extractSessionId - sessionが文字列の場合も取得する",
+  () => {
+    const formatter = new MessageFormatter();
+    const processor = new CodexStreamProcessor(formatter);
+
+    const event = {
+      type: "session.created",
+      session: "session-from-string",
+    } as unknown as CodexExecJsonEvent;
+
+    const sessionId = processor.extractSessionId(event);
+    assertEquals(sessionId, "session-from-string");
+  },
+);
+
+Deno.test(
+  "extractSessionId - session内の入れ子session_idも検出する",
+  () => {
+    const formatter = new MessageFormatter();
+    const processor = new CodexStreamProcessor(formatter);
+
+    const event = {
+      type: "turn.completed",
+      response: {
+        session: {
+          metadata: { session_id: "deep-session-id" },
+        },
+      },
+    } as unknown as CodexExecJsonEvent;
+
+    const sessionId = processor.extractSessionId(event);
+    assertEquals(sessionId, "deep-session-id");
+  },
+);
+
+Deno.test(
+  "extractSessionId - session_pathのみの場合はnullを返す",
+  () => {
+    const formatter = new MessageFormatter();
+    const processor = new CodexStreamProcessor(formatter);
+
+    const event = {
+      type: "turn.completed",
+      session_path: "/tmp/workspaces/only-path",
+    } as unknown as CodexExecJsonEvent;
+
+    const sessionId = processor.extractSessionId(event);
+    assertEquals(sessionId, null);
+  },
+);

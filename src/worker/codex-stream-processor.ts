@@ -373,7 +373,7 @@ export class CodexStreamProcessor {
       return parsed.item.session_id;
     }
 
-    return null;
+    return this.findSessionIdRecursively(parsed);
   }
 
   extractUsageCounts(
@@ -642,6 +642,124 @@ export class CodexStreamProcessor {
     if (match) {
       return parseInt(match[1], 10);
     }
+    return null;
+  }
+
+  private normalizeSessionId(value: unknown): string | null {
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) {
+        return null;
+      }
+      if (/[\s/\\]/.test(trimmed)) {
+        return null;
+      }
+      return trimmed;
+    }
+
+    if (typeof value === "number") {
+      return Number.isFinite(value) ? String(value) : null;
+    }
+
+    return null;
+  }
+
+  private findSessionIdRecursively(
+    value: unknown,
+    parentKey?: string,
+    grandparentKey?: string,
+  ): string | null {
+    const normalizedParent = parentKey?.toLowerCase();
+    const normalizedGrandparent = grandparentKey?.toLowerCase();
+
+    if (
+      typeof value === "string" ||
+      typeof value === "number"
+    ) {
+      if (
+        normalizedParent === "session" ||
+        normalizedParent === "session_id" ||
+        normalizedParent === "sessionid"
+      ) {
+        return this.normalizeSessionId(value);
+      }
+
+      if (
+        normalizedParent === "id" &&
+        normalizedGrandparent &&
+        normalizedGrandparent.includes("session")
+      ) {
+        return this.normalizeSessionId(value);
+      }
+
+      return null;
+    }
+
+    if (Array.isArray(value)) {
+      for (const element of value) {
+        const candidate = this.findSessionIdRecursively(
+          element,
+          parentKey,
+          grandparentKey,
+        );
+        if (candidate) {
+          return candidate;
+        }
+      }
+      return null;
+    }
+
+    if (!value || typeof value !== "object") {
+      return null;
+    }
+
+    for (const [key, child] of Object.entries(
+      value as Record<string, unknown>,
+    )) {
+      const normalizedKey = key.toLowerCase();
+
+      if (
+        normalizedKey === "session" ||
+        normalizedKey === "session_id" ||
+        normalizedKey === "sessionid"
+      ) {
+        const candidate = this.findSessionIdRecursively(
+          child,
+          key,
+          parentKey,
+        );
+        if (candidate) {
+          return candidate;
+        }
+        continue;
+      }
+
+      if (
+        normalizedKey === "id" &&
+        normalizedParent &&
+        normalizedParent.includes("session")
+      ) {
+        const candidate = this.findSessionIdRecursively(
+          child,
+          key,
+          parentKey,
+        );
+        if (candidate) {
+          return candidate;
+        }
+        continue;
+      }
+
+      const candidate = this.findSessionIdRecursively(
+        child,
+        key,
+        parentKey,
+      );
+      if (candidate) {
+        return candidate;
+      }
+    }
+
     return null;
   }
 }

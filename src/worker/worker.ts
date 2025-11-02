@@ -1004,16 +1004,14 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
     newSessionId: string | null,
     allOutput: string,
   ): Promise<void> {
+    const previousSessionId = this.state.sessionId ?? null;
     // セッションIDを更新
-    if (newSessionId) {
+    if (newSessionId && newSessionId !== previousSessionId) {
       this.state.sessionId = newSessionId;
       this.logVerbose("セッションID更新", {
-        oldSessionId: this.state.sessionId,
+        oldSessionId: previousSessionId,
         newSessionId,
       });
-
-      // 非同期でWorker状態を保存
-      this.saveAsync();
     }
 
     // 生のjsonlを保存
@@ -1030,6 +1028,9 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
         });
       }
     }
+
+    // 非同期でWorker状態を保存
+    this.saveAsync();
   }
 
   private handleStreamData(
