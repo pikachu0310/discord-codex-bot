@@ -376,6 +376,36 @@ export class CodexStreamProcessor {
     return this.findSessionIdRecursively(parsed);
   }
 
+  extractSessionIdFromText(text: string | null | undefined): string | null {
+    if (!text) {
+      return null;
+    }
+
+    const searchTargets = Array.isArray(text) ? text : [text];
+    for (const target of searchTargets) {
+      if (typeof target !== "string") {
+        continue;
+      }
+
+      const patterns = [
+        /\bcodex(?:\s+exec)?\s+resume\s+([0-9a-zA-Z][0-9a-zA-Z\-]{8,})\b/g,
+        /\bsession(?:[_\s-]*id)?\s*[:=]\s*([0-9a-zA-Z][0-9a-zA-Z\-]{8,})\b/g,
+      ];
+
+      for (const pattern of patterns) {
+        let match: RegExpExecArray | null;
+        while ((match = pattern.exec(target)) !== null) {
+          const candidate = this.normalizeSessionId(match[1]);
+          if (candidate) {
+            return candidate;
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+
   extractUsageCounts(
     parsed: CodexStreamMessage | CodexExecJsonEvent,
   ): { inputTokens: number; outputTokens: number } | null {

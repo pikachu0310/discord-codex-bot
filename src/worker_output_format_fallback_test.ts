@@ -122,6 +122,36 @@ class ExecJsonFallbackExecutor implements CodexCommandExecutor {
   }
 }
 
+class SessionResumeHintExecutor implements CodexCommandExecutor {
+  async executeStreaming(
+    _args: string[],
+    _cwd: string,
+    onData: (data: Uint8Array) => void,
+    _abortSignal?: AbortSignal,
+    _onProcessStart?: (childProcess: Deno.ChildProcess) => void,
+    _env?: Record<string, string>,
+    _options?: { usePty?: boolean },
+  ) {
+    const encoder = new TextEncoder();
+    const message = JSON.stringify({
+      type: "item.completed",
+      item: { type: "agent_message", id: "item_1", text: "完了しました" },
+    });
+    const turn = JSON.stringify({
+      type: "turn.completed",
+      usage: { input_tokens: 12, output_tokens: 4 },
+    });
+
+    onData(encoder.encode(`${message}\n`));
+    onData(encoder.encode(`${turn}\n`));
+
+    const hint =
+      "To continue this session, run codex exec resume 019a34c2-258d-78d3-a3b6-3cdf971eee76\n";
+
+    return ok({ code: 0, stderr: encoder.encode(hint) });
+  }
+}
+
 class ExecColorFallbackExecutor implements CodexCommandExecutor {
   attempts = 0;
   argsHistory: string[][] = [];
@@ -1171,6 +1201,59 @@ describe("Worker exec JSON agent message handling", () => {
       } finally {
         await Deno.remove(repoPath, { recursive: true });
       }
+    } finally {
+      await Deno.remove(tempDir, { recursive: true });
+    }
+  });
+});
+
+describe("Worker session resume hint fallback", () => {
+  it("stderrのresumeヒントからセッションIDを復元する", async () => {
+    const tempDir = await Deno.makeTempDir();
+    try {
+      const workspaceManager = new WorkspaceManager(tempDir);
+      await workspaceManager.initialize();
+
+      const executor = new SessionResumeHintExecutor();
+
+      const repoPath = `${tempDir}/repositories/test/repo`;
+      const worktreePath = `${tempDir}/worktrees/thread-123`;
+      await Deno.mkdir(repoPath, { recursive: true });
+      await Deno.mkdir(worktreePath, { recursive: true });
+
+      const state: WorkerState = {
+        workerName: "test-worker",
+        threadId: "thread-123",
+        repository: { fullName: "test/repo", org: "test", repo: "repo" },
+        repositoryLocalPath: repoPath,
+        worktreePath,
+        devcontainerConfig: {
+          useDevcontainer: false,
+          useFallbackDevcontainer: false,
+          hasDevcontainerFile: false,
+          hasAnthropicsFeature: false,
+          isStarted: false,
+        },
+        status: "active",
+        createdAt: new Date().toISOString(),
+        lastActiveAt: new Date().toISOString(),
+      };
+
+      const worker = new Worker(
+        state,
+        workspaceManager,
+        executor,
+        true,
+      );
+
+      const result = await worker.processMessage("ls");
+      assertEquals(result.isOk(), true);
+
+      const workerState = (worker as unknown as { state: WorkerState }).state;
+      assertEquals(
+        workerState.sessionId,
+        "019a34c2-258d-78d3-a3b6-3cdf971eee76",
+      );
     } finally {
       await Deno.remove(tempDir, { recursive: true });
     }

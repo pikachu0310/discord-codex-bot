@@ -503,6 +503,7 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
     }
 
     const { code, stderr } = executionResult.value;
+    const stderrMessage = new TextDecoder().decode(stderr);
 
     this.logVerbose("ストリーミング実行完了", {
       exitCode: code,
@@ -522,9 +523,31 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
       return this.handleErrorMessage(code, stderr, allOutput);
     }
 
+    if (!newSessionId) {
+      const stdoutSessionId = streamProcessor.extractSessionIdFromText(
+        allOutput,
+      );
+      if (stdoutSessionId) {
+        newSessionId = stdoutSessionId;
+        this.logVerbose("セッションID取得（stdoutフォールバック）", {
+          sessionId: stdoutSessionId,
+        });
+      } else {
+        const stderrSessionId = streamProcessor.extractSessionIdFromText(
+          stderrMessage,
+        );
+        if (stderrSessionId) {
+          newSessionId = stderrSessionId;
+          this.logVerbose("セッションID取得（stderrフォールバック）", {
+            sessionId: stderrSessionId,
+          });
+        }
+      }
+    }
+
     // VERBOSEモードで成功時のstderrも出力（警告等の情報がある場合）
     if (this.configuration.isVerbose() && stderr.length > 0) {
-      const stderrContent = new TextDecoder().decode(stderr);
+      const stderrContent = stderrMessage;
       if (stderrContent.trim()) {
         console.log(
           `[${

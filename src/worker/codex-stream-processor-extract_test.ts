@@ -484,3 +484,29 @@ Deno.test(
     assertEquals(sessionId, null);
   },
 );
+
+Deno.test(
+  "extractSessionIdFromText - resumeヒントからセッションIDを抽出する",
+  () => {
+    const formatter = new MessageFormatter();
+    const processor = new CodexStreamProcessor(formatter);
+
+    const text =
+      "To continue this session, run codex exec resume 019a34c2-258d-78d3-a3b6-3cdf971eee76";
+
+    const sessionId = processor.extractSessionIdFromText(text);
+    assertEquals(sessionId, "019a34c2-258d-78d3-a3b6-3cdf971eee76");
+  },
+);
+
+Deno.test(
+  "extractSessionIdFromText - session id表記からセッションIDを抽出する",
+  () => {
+    const formatter = new MessageFormatter();
+    const processor = new CodexStreamProcessor(formatter);
+
+    const text = "session_id: 1433408726685192193";
+    const sessionId = processor.extractSessionIdFromText(text);
+    assertEquals(sessionId, "1433408726685192193");
+  },
+);
