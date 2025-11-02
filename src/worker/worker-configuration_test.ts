@@ -1,9 +1,11 @@
 import { assertEquals } from "https://deno.land/std@0.211.0/assert/mod.ts";
 import { WorkerConfiguration } from "./worker-configuration.ts";
 import {
-  recordVerboseFlagUnsupportedForTests,
-  resetOutputFormatDetectionForTests,
+  recordDangerouslyBypassUnsupportedForTests,
   recordDangerouslySkipPermissionsUnsupportedForTests,
+  recordExecJsonUnsupportedForTests,
+  recordVerboseFlagUnsupportedForTests,
+  resetCodexCliCapabilityCacheForTests,
 } from "./codex-cli-capabilities.ts";
 
 Deno.test("WorkerConfiguration - 初期設定", () => {
@@ -35,20 +37,22 @@ Deno.test("WorkerConfiguration - verboseモード設定", () => {
 });
 
 Deno.test("WorkerConfiguration - buildCodexArgs - 基本", () => {
-  resetOutputFormatDetectionForTests();
+  resetCodexCliCapabilityCacheForTests();
   const config = new WorkerConfiguration();
   const args = config.buildCodexArgs("テストプロンプト");
 
   assertEquals(args, [
-    "--output-format",
-    "stream-json",
-    "--dangerously-skip-permissions",
+    "exec",
+    "--json",
+    "--color",
+    "never",
+    "--dangerously-bypass-approvals-and-sandbox",
     "テストプロンプト",
   ]);
 });
 
 Deno.test("WorkerConfiguration - buildCodexArgs - verboseモード", () => {
-  resetOutputFormatDetectionForTests();
+  resetCodexCliCapabilityCacheForTests();
   const config = new WorkerConfiguration(true);
   const args = config.buildCodexArgs("テストプロンプト");
 
@@ -59,14 +63,14 @@ Deno.test(
   "WorkerConfiguration - Codex CLIが--verboseをサポートしない場合にフラグを付与しない",
   () => {
     try {
-      resetOutputFormatDetectionForTests();
+      resetCodexCliCapabilityCacheForTests();
       recordVerboseFlagUnsupportedForTests();
       const config = new WorkerConfiguration(true);
       const args = config.buildCodexArgs("テストプロンプト");
 
       assertEquals(args.includes("--verbose"), false);
     } finally {
-      resetOutputFormatDetectionForTests();
+      resetCodexCliCapabilityCacheForTests();
     }
   },
 );
@@ -75,26 +79,30 @@ Deno.test(
   "WorkerConfiguration - Codex CLIが--dangerously-skip-permissionsをサポートしない場合にフラグを付与しない",
   () => {
     try {
-      resetOutputFormatDetectionForTests();
+      resetCodexCliCapabilityCacheForTests();
       recordDangerouslySkipPermissionsUnsupportedForTests();
       const config = new WorkerConfiguration();
       const args = config.buildCodexArgs("テストプロンプト");
 
-      assertEquals(args.includes("--dangerously-skip-permissions"), false);
+      assertEquals(args.includes("--dangerously-bypass-approvals-and-sandbox"), false);
     } finally {
-      resetOutputFormatDetectionForTests();
+      resetCodexCliCapabilityCacheForTests();
     }
   },
 );
 
-Deno.test.ignore(
+Deno.test(
   "WorkerConfiguration - buildCodexArgs - セッション継続",
   () => {
+    resetCodexCliCapabilityCacheForTests();
     const config = new WorkerConfiguration();
     const args = config.buildCodexArgs("テストプロンプト", "session-123");
 
-    assertEquals(args.includes("--resume"), true);
-    assertEquals(args.includes("session-123"), true);
+    assertEquals(args.slice(0, 2), ["exec", "--json"]);
+    const resumeIndex = args.indexOf("resume");
+    assertEquals(resumeIndex !== -1, true);
+    assertEquals(args[resumeIndex + 1], "session-123");
+    assertEquals(args[args.length - 1], "テストプロンプト");
   },
 );
 
@@ -119,14 +127,15 @@ Deno.test("WorkerConfiguration - buildCodexArgs - 空白を含む追加システ
 Deno.test("WorkerConfiguration - CODEX_CLI_OUTPUT_FORMAT_MODE=neverでフラグ無効", () => {
   try {
     Deno.env.set("CODEX_CLI_OUTPUT_FORMAT_MODE", "never");
-    resetOutputFormatDetectionForTests();
+    resetCodexCliCapabilityCacheForTests();
+    recordExecJsonUnsupportedForTests();
     const config = new WorkerConfiguration();
     const args = config.buildCodexArgs("テストプロンプト");
 
     assertEquals(args.includes("--output-format"), false);
   } finally {
     Deno.env.delete("CODEX_CLI_OUTPUT_FORMAT_MODE");
-    resetOutputFormatDetectionForTests();
+    resetCodexCliCapabilityCacheForTests();
   }
 });
 

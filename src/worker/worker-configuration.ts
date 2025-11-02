@@ -1,6 +1,9 @@
 import { CODEX_CLI } from "../constants.ts";
 import {
-  shouldUseOutputFormatFlag,
+  supportsExecColorFlag,
+  supportsExecJsonMode,
+  supportsDangerouslyBypassFlag,
+  supportsLegacyOutputFormatFlag,
   shouldUseVerboseFlag,
   shouldUseDangerouslySkipPermissionsFlag,
 } from "./codex-cli-capabilities.ts";
@@ -14,6 +17,9 @@ export class WorkerConfiguration {
   private translatorUrl?: string;
   private dangerouslySkipPermissions: boolean;
   private maxOutputTokens: number;
+  private useExecJsonMode: boolean;
+  private useExecColorFlag: boolean;
+  private useDangerouslyBypassFlag: boolean;
   private useOutputFormatFlag: boolean;
   private useCliVerboseFlag: boolean;
   private useDangerouslySkipPermissionsFlag: boolean;
@@ -29,9 +35,15 @@ export class WorkerConfiguration {
     this.appendSystemPrompt = appendSystemPrompt;
     this.translatorUrl = translatorUrl;
     this.dangerouslySkipPermissions = dangerouslySkipPermissions;
-    this.useOutputFormatFlag = shouldUseOutputFormatFlag();
+    this.useExecJsonMode = supportsExecJsonMode();
+    this.useExecColorFlag = this.useExecJsonMode && supportsExecColorFlag();
+    this.useDangerouslyBypassFlag = this.dangerouslySkipPermissions &&
+      this.useExecJsonMode && supportsDangerouslyBypassFlag();
+    this.useOutputFormatFlag = !this.useExecJsonMode &&
+      supportsLegacyOutputFormatFlag();
     this.useCliVerboseFlag = shouldUseVerboseFlag();
     this.useDangerouslySkipPermissionsFlag = this.dangerouslySkipPermissions &&
+      (!this.useExecJsonMode || !this.useDangerouslyBypassFlag) &&
       shouldUseDangerouslySkipPermissionsFlag();
 
     // 環境変数からトークン制限を取得、未設定の場合はデフォルト値を使用
@@ -69,13 +81,58 @@ export class WorkerConfiguration {
   }
 
   /**
+   * exec --jsonモードを使用するか
+   */
+  shouldUseExecJsonMode(): boolean {
+    return this.useExecJsonMode;
+  }
+
+  /**
+   * exec --jsonモードを無効化してレガシーモードへフォールバック
+   */
+  disableExecJsonMode(): void {
+    this.useExecJsonMode = false;
+    this.useExecColorFlag = false;
+    this.useDangerouslyBypassFlag = false;
+    this.useOutputFormatFlag = supportsLegacyOutputFormatFlag();
+    this.useDangerouslySkipPermissionsFlag = this.dangerouslySkipPermissions &&
+      shouldUseDangerouslySkipPermissionsFlag();
+  }
+
+  /**
+   * execモードでの--colorフラグを無効化
+   */
+  disableExecColorFlag(): void {
+    this.useExecColorFlag = false;
+  }
+
+  /**
+   * execモードでの危険フラグを無効化し、可能であれば旧フラグにフォールバック
+   */
+  disableDangerouslyBypassFlag(): void {
+    this.useDangerouslyBypassFlag = false;
+    if (this.dangerouslySkipPermissions) {
+      this.useDangerouslySkipPermissionsFlag = shouldUseDangerouslySkipPermissionsFlag();
+    }
+  }
+
+  /**
    * 権限チェックスキップ設定を設定する
    */
   setDangerouslySkipPermissions(skipPermissions: boolean): void {
     this.dangerouslySkipPermissions = skipPermissions;
-    this.useDangerouslySkipPermissionsFlag = skipPermissions
-      ? shouldUseDangerouslySkipPermissionsFlag()
-      : false;
+    if (skipPermissions) {
+      this.useDangerouslyBypassFlag = this.useExecJsonMode &&
+        supportsDangerouslyBypassFlag();
+      if (this.useDangerouslyBypassFlag) {
+        this.useDangerouslySkipPermissionsFlag = false;
+      } else {
+        this.useDangerouslySkipPermissionsFlag = shouldUseDangerouslySkipPermissionsFlag();
+      }
+    } else {
+      this.useDangerouslyBypassFlag = false;
+      this.useDangerouslySkipPermissionsFlag = false;
+    }
   }
 
   /**
@@ -121,33 +178,59 @@ export class WorkerConfiguration {
   buildCodexArgs(prompt: string, sessionId?: string | null): string[] {
     const args: string[] = [];
 
+    if (this.useExecJsonMode) {
+      args.push("exec");
+      args.push("--json");
+      if (this.useExecColorFlag) {
+        args.push("--color", "never");
+      }
+
+      if (this.verbose && this.useCliVerboseFlag) {
+        args.push("--verbose");
+      }
+
+      if (this.dangerouslySkipPermissions) {
+        if (this.useDangerouslyBypassFlag) {
+          args.push("--dangerously-bypass-approvals-and-sandbox");
+        } else if (this.useDangerouslySkipPermissionsFlag) {
+          args.push("--dangerously-skip-permissions");
+        }
+      }
+
+      if (this.appendSystemPrompt) {
+        args.push("--append-system-prompt", this.appendSystemPrompt);
+      }
+
+      if (sessionId) {
+        args.push("resume");
+        args.push(sessionId);
+      }
+
+      args.push(prompt);
+      return args;
+    }
+
     if (this.useOutputFormatFlag) {
       args.push("--output-format", "stream-json");
     }
 
-    // verboseモードかつCodex CLIがサポートしている場合のみ--verboseを追加
     if (this.verbose && this.useCliVerboseFlag) {
       args.push("--verbose");
     }
 
-    // セッション継続の場合
     if (sessionId) {
-      // args.push("--resume", sessionId);
       args.push("--continue");
     }
 
-    // 権限チェックスキップが有効な場合のみ
     if (this.dangerouslySkipPermissions && this.useDangerouslySkipPermissionsFlag) {
       args.push("--dangerously-skip-permissions");
     }
 
-    // append-system-promptが設定されている場合
     if (this.appendSystemPrompt) {
       args.push("--append-system-prompt", this.appendSystemPrompt);
     }
 
     args.push(prompt);
-
     return args;
   }
 

@@ -8,6 +8,9 @@ import {
   CodexStreamProcessor,
   JsonParseError,
   SchemaValidationError,
+  type CodexExecJsonEvent,
+  isLegacyCodexStreamMessage,
+  isCodexExecJsonEvent,
 } from "./codex-stream-processor.ts";
 import { WorkerConfiguration } from "./worker-configuration.ts";
 import { SessionLogger } from "./session-logger.ts";
@@ -287,6 +290,43 @@ export class Worker implements IWorker {
           this.configuration.disableDangerouslySkipPermissionsFlag();
           continue;
         }
+
+        if (
+          ["--json", "exec", "resume"].includes(lastResult.error.option) &&
+          attempt < maxAttempts - 1
+        ) {
+          this.logVerbose("Codex CLIのexec/jsonモードに非対応のためレガシーモードへ切り替え", {
+            option: lastResult.error.option,
+            stderr: lastResult.error.stderr,
+          });
+          this.configuration.disableExecJsonMode();
+          continue;
+        }
+
+        if (
+          lastResult.error.option === "--color" &&
+          attempt < maxAttempts - 1
+        ) {
+          this.logVerbose("Codex CLIが--colorをサポートしていないためフラグを無効化", {
+            stderr: lastResult.error.stderr,
+          });
+          this.configuration.disableExecColorFlag();
+          continue;
+        }
+
+        if (
+          lastResult.error.option === "--dangerously-bypass-approvals-and-sandbox" &&
+          attempt < maxAttempts - 1
+        ) {
+          this.logVerbose(
+            "Codex CLIが--dangerously-bypass-approvals-and-sandboxをサポートしていないため旧フラグへ切り替え",
+            {
+              stderr: lastResult.error.stderr,
+            },
+          );
+          this.configuration.disableDangerouslyBypassFlag();
+          continue;
+        }
       }
 
       if (
@@ -524,39 +564,41 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
 
     this.logVerbose(`ストリーミング行処理: ${line}`);
     try {
-      // 安全なJSON解析と型検証を使用
       const parsed = streamProcessor.parseJsonLine(line);
 
-      // メッセージタイプごとの処理
-      switch (parsed.type) {
-        case "result":
-          this.handleResultMessage(parsed, updateState);
-          break;
-        case "assistant":
-          this.handleAssistantMessage(parsed, state, updateState);
-          // assistantメッセージからトークン使用量を追跡
-          if (parsed.message?.usage && this.rateLimitManager) {
-            const usage = parsed.message.usage;
-            const inputTokens = usage.input_tokens +
-              (usage.cache_creation_input_tokens || 0) +
-              (usage.cache_read_input_tokens || 0);
-            const outputTokens = usage.output_tokens;
+      if (isLegacyCodexStreamMessage(parsed)) {
+        switch (parsed.type) {
+          case "result":
+            this.handleResultMessage(parsed, updateState);
+            break;
+          case "assistant":
+            this.handleAssistantMessage(parsed, state, updateState);
+            if (parsed.message?.usage && this.rateLimitManager) {
+              const usage = parsed.message.usage;
+              const inputTokens = usage.input_tokens +
+                (usage.cache_creation_input_tokens || 0) +
+                (usage.cache_read_input_tokens || 0);
+              const outputTokens = usage.output_tokens;
 
-            this.rateLimitManager.trackTokenUsage(inputTokens, outputTokens);
-            this.logVerbose("トークン使用量を追跡", {
-              inputTokens,
-              outputTokens,
-              totalTokens: inputTokens + outputTokens,
-            });
-          }
-          break;
+              this.rateLimitManager.trackTokenUsage(
+                inputTokens,
+                outputTokens,
+              );
+              this.logVerbose("トークン使用量を追跡", {
+                inputTokens,
+                outputTokens,
+                totalTokens: inputTokens + outputTokens,
+              });
+            }
+            break;
+        }
+      } else if (isCodexExecJsonEvent(parsed)) {
+        this.handleExecJsonEvent(parsed, state, updateState, streamProcessor);
       }
 
-      // Codex Codeの実際の出力内容をDiscordに送信
       if (onProgress) {
         const outputMessage = streamProcessor.extractOutputMessage(parsed);
         if (outputMessage) {
-          // 最後のアクティビティを記録
           this.lastActivityDescription = this.extractActivityDescription(
             parsed,
             outputMessage,
@@ -567,11 +609,11 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
         }
       }
 
-      // セッションIDを更新
-      if (parsed.session_id) {
-        updateState({ newSessionId: parsed.session_id });
+      const sessionId = streamProcessor.extractSessionId(parsed);
+      if (sessionId) {
+        updateState({ newSessionId: sessionId });
         this.logVerbose("新しいセッションID取得", {
-          sessionId: parsed.session_id,
+          sessionId,
         });
       }
     } catch (parseError) {
@@ -661,6 +703,54 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
     }
   }
 
+  private handleExecJsonEvent(
+    parsed: CodexExecJsonEvent,
+    _state: { result: string; newSessionId: string | null },
+    updateState: (updates: { result?: string }) => void,
+    streamProcessor: CodexStreamProcessor,
+  ): void {
+    if (parsed.type === "item.completed" && parsed.item?.type === "agent_message") {
+      const message = streamProcessor.extractOutputMessage(parsed);
+      if (message) {
+        if (streamProcessor.isCodexCodeRateLimit(message)) {
+          const timestamp = streamProcessor.extractRateLimitTimestamp(message);
+          if (timestamp !== null) {
+            throw new CodexCodeRateLimitError(timestamp);
+          }
+        }
+        updateState({ result: message });
+      }
+    }
+
+    if (parsed.type === "turn.completed" || parsed.type === "response.completed") {
+      const finalMessage = streamProcessor.extractExecResponseText(parsed);
+      if (finalMessage) {
+        if (streamProcessor.isCodexCodeRateLimit(finalMessage)) {
+          const timestamp = streamProcessor.extractRateLimitTimestamp(finalMessage);
+          if (timestamp !== null) {
+            throw new CodexCodeRateLimitError(timestamp);
+          }
+        }
+        updateState({ result: finalMessage });
+      }
+    }
+
+    if (this.rateLimitManager) {
+      const usage = streamProcessor.extractUsageCounts(parsed);
+      if (usage) {
+        this.rateLimitManager.trackTokenUsage(
+          usage.inputTokens,
+          usage.outputTokens,
+        );
+        this.logVerbose("トークン使用量を追跡", {
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          totalTokens: usage.inputTokens + usage.outputTokens,
+        });
+      }
+    }
+  }
+
   private handleResultMessage(
     parsed: CodexStreamMessage,
     updateState: (updates: { result?: string }) => void,
@@ -712,6 +802,93 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
     stdout: string,
   ): Result<never, WorkerError> {
     const stderrMessage = new TextDecoder().decode(stderr);
+
+    if (
+      stderrMessage.includes("unrecognized subcommand 'exec'") ||
+      stderrMessage.includes("unknown subcommand 'exec'") ||
+      (stderrMessage.includes("wasn't expected") &&
+        stderrMessage.includes("exec"))
+    ) {
+      this.logVerbose("Codex CLIがexecサブコマンドを認識しないエラーを検出", {
+        exitCode: code,
+        stderr: stderrMessage,
+      });
+      return err({
+        type: "CODEX_CLI_UNSUPPORTED_OPTION",
+        option: "exec",
+        stderr: stderrMessage,
+      });
+    }
+
+    if (
+      stderrMessage.includes("unexpected argument '--json'") ||
+      stderrMessage.includes("unknown argument '--json'") ||
+      stderrMessage.includes("Found argument '--json'")
+    ) {
+      this.logVerbose("Codex CLIが--jsonを認識しないエラーを検出", {
+        exitCode: code,
+        stderr: stderrMessage,
+      });
+      return err({
+        type: "CODEX_CLI_UNSUPPORTED_OPTION",
+        option: "--json",
+        stderr: stderrMessage,
+      });
+    }
+
+    if (
+      stderrMessage.includes("unexpected argument '--color'") ||
+      stderrMessage.includes("Found argument '--color'")
+    ) {
+      this.logVerbose("Codex CLIが--colorを認識しないエラーを検出", {
+        exitCode: code,
+        stderr: stderrMessage,
+      });
+      return err({
+        type: "CODEX_CLI_UNSUPPORTED_OPTION",
+        option: "--color",
+        stderr: stderrMessage,
+      });
+    }
+
+    if (
+      stderrMessage.includes(
+        "unexpected argument '--dangerously-bypass-approvals-and-sandbox'",
+      ) ||
+      stderrMessage.includes(
+        "Found argument '--dangerously-bypass-approvals-and-sandbox'",
+      )
+    ) {
+      this.logVerbose(
+        "Codex CLIが--dangerously-bypass-approvals-and-sandboxを認識しないエラーを検出",
+        {
+          exitCode: code,
+          stderr: stderrMessage,
+        },
+      );
+      return err({
+        type: "CODEX_CLI_UNSUPPORTED_OPTION",
+        option: "--dangerously-bypass-approvals-and-sandbox",
+        stderr: stderrMessage,
+      });
+    }
+
+    if (
+      stderrMessage.includes("unrecognized subcommand 'resume'") ||
+      stderrMessage.includes("unknown subcommand 'resume'") ||
+      (stderrMessage.includes("wasn't expected") &&
+        stderrMessage.includes("resume"))
+    ) {
+      this.logVerbose("Codex CLIがexec resumeを認識しないエラーを検出", {
+        exitCode: code,
+        stderr: stderrMessage,
+      });
+      return err({
+        type: "CODEX_CLI_UNSUPPORTED_OPTION",
+        option: "resume",
+        stderr: stderrMessage,
+      });
+    }
 
     if (stderrMessage.includes("unexpected argument '--output-format'")) {
       this.logVerbose("Codex CLIが--output-formatを認識しないエラーを検出", {
@@ -1169,31 +1346,51 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
    * ストリームメッセージから最後のアクティビティの説明を抽出
    */
   private extractActivityDescription(
-    parsed: CodexStreamMessage,
+    parsed: CodexStreamMessage | CodexExecJsonEvent,
     outputMessage: string,
   ): string {
-    // ツール使用の場合
-    if (parsed.type === "assistant" && parsed.message?.content) {
-      for (const item of parsed.message.content) {
-        if (item.type === "tool_use" && item.name) {
-          return `ツール使用: ${item.name}`;
+    if (isLegacyCodexStreamMessage(parsed)) {
+      if (parsed.type === "assistant" && parsed.message?.content) {
+        for (const item of parsed.message.content) {
+          if (item.type === "tool_use" && item.name) {
+            return `ツール使用: ${item.name}`;
+          }
         }
+      }
+
+      if (parsed.type === "user" && parsed.message?.content) {
+        for (const item of parsed.message.content) {
+          if (typeof item === "string") {
+            return item;
+          }
+          if (item.type === "tool_result") {
+            return "ツール実行結果を処理";
+          }
+        }
+      }
+    } else if (isCodexExecJsonEvent(parsed)) {
+      if (parsed.type.startsWith("item.") && parsed.item) {
+        switch (parsed.item.type) {
+          case "reasoning":
+            return "思考中";
+          case "tool_result":
+          case "tool_response":
+          case "command_result":
+            return "ツール実行結果を処理";
+          case "agent_message":
+            break;
+          default:
+            if (parsed.item.type) {
+              return `イベント: ${parsed.item.type}`;
+            }
+        }
+      } else if (parsed.type === "turn.completed") {
+        return "ターン完了";
+      } else if (parsed.type === "response.completed") {
+        return "レスポンス完了";
       }
     }
 
-    // ツール結果の場合
-    if (parsed.type === "user" && parsed.message?.content) {
-      for (const item of parsed.message.content) {
-        if (typeof item === "string") {
-          return item;
-        }
-        if (item.type === "tool_result") {
-          return "ツール実行結果を処理";
-        }
-      }
-    }
-
-    // その他のメッセージの場合、最初の50文字を使用
     if (outputMessage) {
       const preview = outputMessage.substring(0, 50);
       return preview.length < outputMessage.length ? `${preview}...` : preview;
