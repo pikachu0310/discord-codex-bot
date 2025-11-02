@@ -470,6 +470,44 @@ Deno.test(
 );
 
 Deno.test(
+  "extractSessionId - thread.startedイベントからthread_idを取得する",
+  () => {
+    const formatter = new MessageFormatter();
+    const processor = new CodexStreamProcessor(formatter);
+
+    const event = {
+      type: "thread.started",
+      thread_id: "019a43e1-ffd3-78e1-b71e-5989534567b9",
+    } as unknown as CodexExecJsonEvent;
+
+    const sessionId = processor.extractSessionId(event);
+    assertEquals(sessionId, "019a43e1-ffd3-78e1-b71e-5989534567b9");
+  },
+);
+
+Deno.test(
+  "extractSessionId - thread情報がネストしていても検出する",
+  () => {
+    const formatter = new MessageFormatter();
+    const processor = new CodexStreamProcessor(formatter);
+
+    const event = {
+      type: "turn.completed",
+      response: {
+        metadata: {
+          thread: {
+            id: "019a43e1-ffd3-78e1-b71e-5989534567b9",
+          },
+        },
+      },
+    } as unknown as CodexExecJsonEvent;
+
+    const sessionId = processor.extractSessionId(event);
+    assertEquals(sessionId, "019a43e1-ffd3-78e1-b71e-5989534567b9");
+  },
+);
+
+Deno.test(
   "extractSessionId - session_pathのみの場合はnullを返す",
   () => {
     const formatter = new MessageFormatter();
@@ -508,5 +546,17 @@ Deno.test(
     const text = "session_id: 1433408726685192193";
     const sessionId = processor.extractSessionIdFromText(text);
     assertEquals(sessionId, "1433408726685192193");
+  },
+);
+
+Deno.test(
+  "extractSessionIdFromText - thread id表記からセッションIDを抽出する",
+  () => {
+    const formatter = new MessageFormatter();
+    const processor = new CodexStreamProcessor(formatter);
+
+    const text = "thread_id: 019a43e1-ffd3-78e1-b71e-5989534567b9";
+    const sessionId = processor.extractSessionIdFromText(text);
+    assertEquals(sessionId, "019a43e1-ffd3-78e1-b71e-5989534567b9");
   },
 );

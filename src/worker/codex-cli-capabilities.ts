@@ -10,6 +10,7 @@ let cachedExecJsonSupport: boolean | null = null;
 let cachedExecColorSupport: boolean | null = null;
 let cachedExecResumeSupport: boolean | null = null;
 let cachedDangerouslyBypassSupport: boolean | null = null;
+let cachedSearchFlagSupport: boolean | null = null;
 
 let cachedOutputFormatSupport: boolean | null = null;
 let cachedVerboseSupport: boolean | null = null;
@@ -160,6 +161,21 @@ export function supportsDangerouslyBypassFlag(): boolean {
   return cachedDangerouslyBypassSupport;
 }
 
+export function supportsSearchFlag(): boolean {
+  if (cachedSearchFlagSupport !== null) {
+    return cachedSearchFlagSupport;
+  }
+
+  const helpText = getCodexCliHelpText();
+  if (helpText !== null) {
+    cachedSearchFlagSupport = helpText.includes("--search");
+    return cachedSearchFlagSupport;
+  }
+
+  cachedSearchFlagSupport = true;
+  return cachedSearchFlagSupport;
+}
+
 export function supportsLegacyOutputFormatFlag(): boolean {
   const envOverride = getEnvOverride();
   if (envOverride !== null) {
@@ -236,6 +252,7 @@ export function resetCodexCliCapabilityCacheForTests(): void {
   cachedExecColorSupport = null;
   cachedExecResumeSupport = null;
   cachedDangerouslyBypassSupport = null;
+  cachedSearchFlagSupport = null;
   cachedOutputFormatSupport = null;
   cachedVerboseSupport = null;
   cachedDangerouslySkipPermissionsSupport = null;
@@ -263,4 +280,8 @@ export function recordVerboseFlagUnsupportedForTests(): void {
 
 export function recordDangerouslySkipPermissionsUnsupportedForTests(): void {
   cachedDangerouslySkipPermissionsSupport = false;
+}
+
+export function recordSearchFlagUnsupportedForTests(): void {
+  cachedSearchFlagSupport = false;
 }

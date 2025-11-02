@@ -292,6 +292,17 @@ export class Worker implements IWorker {
         }
 
         if (
+          lastResult.error.option === "--search" &&
+          attempt < maxAttempts - 1
+        ) {
+          this.logVerbose("Codex CLIが--searchをサポートしていないためフラグを無効化", {
+            stderr: lastResult.error.stderr,
+          });
+          this.configuration.disableSearchFlag();
+          continue;
+        }
+
+        if (
           ["--json", "exec", "resume"].includes(lastResult.error.option) &&
           attempt < maxAttempts - 1
         ) {
@@ -870,6 +881,21 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
       return err({
         type: "CODEX_CLI_UNSUPPORTED_OPTION",
         option: "--color",
+        stderr: stderrMessage,
+      });
+    }
+
+    if (
+      stderrMessage.includes("unexpected argument '--search'") ||
+      stderrMessage.includes("Found argument '--search'")
+    ) {
+      this.logVerbose("Codex CLIが--searchを認識しないエラーを検出", {
+        exitCode: code,
+        stderr: stderrMessage,
+      });
+      return err({
+        type: "CODEX_CLI_UNSUPPORTED_OPTION",
+        option: "--search",
         stderr: stderrMessage,
       });
     }

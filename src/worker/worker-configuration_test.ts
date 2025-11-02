@@ -4,6 +4,7 @@ import {
   recordDangerouslyBypassUnsupportedForTests,
   recordDangerouslySkipPermissionsUnsupportedForTests,
   recordExecJsonUnsupportedForTests,
+  recordSearchFlagUnsupportedForTests,
   recordVerboseFlagUnsupportedForTests,
   resetCodexCliCapabilityCacheForTests,
 } from "./codex-cli-capabilities.ts";
@@ -42,6 +43,7 @@ Deno.test("WorkerConfiguration - buildCodexArgs - 基本", () => {
   const args = config.buildCodexArgs("テストプロンプト");
 
   assertEquals(args, [
+    "--search",
     "exec",
     "--json",
     "--color",
@@ -98,7 +100,7 @@ Deno.test(
     const config = new WorkerConfiguration();
     const args = config.buildCodexArgs("テストプロンプト", "session-123");
 
-    assertEquals(args.slice(0, 2), ["exec", "--json"]);
+    assertEquals(args.slice(0, 3), ["--search", "exec", "--json"]);
     const resumeIndex = args.indexOf("resume");
     assertEquals(resumeIndex !== -1, true);
     assertEquals(args[resumeIndex + 1], "session-123");
@@ -135,6 +137,19 @@ Deno.test("WorkerConfiguration - CODEX_CLI_OUTPUT_FORMAT_MODE=neverでフラグ�
     assertEquals(args.includes("--output-format"), false);
   } finally {
     Deno.env.delete("CODEX_CLI_OUTPUT_FORMAT_MODE");
+    resetCodexCliCapabilityCacheForTests();
+  }
+});
+
+Deno.test("WorkerConfiguration - buildCodexArgs - --searchがサポートされない場合は付与しない", () => {
+  try {
+    resetCodexCliCapabilityCacheForTests();
+    recordSearchFlagUnsupportedForTests();
+    const config = new WorkerConfiguration();
+    const args = config.buildCodexArgs("テストプロンプト");
+
+    assertEquals(args.includes("--search"), false);
+  } finally {
     resetCodexCliCapabilityCacheForTests();
   }
 });

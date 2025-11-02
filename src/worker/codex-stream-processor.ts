@@ -182,6 +182,7 @@ export function isCodexExecJsonEvent(
     type.startsWith("turn.") ||
     type.startsWith("response.") ||
     type.startsWith("session.") ||
+    type.startsWith("thread.") ||
     type.startsWith("error");
 }
 
@@ -373,6 +374,13 @@ export class CodexStreamProcessor {
       return parsed.item.session_id;
     }
 
+    const threadId = this.normalizeSessionId(
+      (parsed as { thread_id?: unknown }).thread_id,
+    );
+    if (threadId) {
+      return threadId;
+    }
+
     return this.findSessionIdRecursively(parsed);
   }
 
@@ -390,6 +398,7 @@ export class CodexStreamProcessor {
       const patterns = [
         /\bcodex(?:\s+exec)?\s+resume\s+([0-9a-zA-Z][0-9a-zA-Z\-]{8,})\b/g,
         /\bsession(?:[_\s-]*id)?\s*[:=]\s*([0-9a-zA-Z][0-9a-zA-Z\-]{8,})\b/g,
+        /\bthread(?:[_\s-]*id)?\s*[:=]\s*([0-9a-zA-Z][0-9a-zA-Z\-]{8,})\b/g,
       ];
 
       for (const pattern of patterns) {
@@ -709,7 +718,9 @@ export class CodexStreamProcessor {
       if (
         normalizedParent === "session" ||
         normalizedParent === "session_id" ||
-        normalizedParent === "sessionid"
+        normalizedParent === "sessionid" ||
+        normalizedParent === "thread_id" ||
+        normalizedParent === "threadid"
       ) {
         return this.normalizeSessionId(value);
       }
@@ -717,7 +728,8 @@ export class CodexStreamProcessor {
       if (
         normalizedParent === "id" &&
         normalizedGrandparent &&
-        normalizedGrandparent.includes("session")
+        (normalizedGrandparent.includes("session") ||
+          normalizedGrandparent.includes("thread"))
       ) {
         return this.normalizeSessionId(value);
       }
@@ -751,7 +763,10 @@ export class CodexStreamProcessor {
       if (
         normalizedKey === "session" ||
         normalizedKey === "session_id" ||
-        normalizedKey === "sessionid"
+        normalizedKey === "sessionid" ||
+        normalizedKey === "thread" ||
+        normalizedKey === "thread_id" ||
+        normalizedKey === "threadid"
       ) {
         const candidate = this.findSessionIdRecursively(
           child,
@@ -767,7 +782,8 @@ export class CodexStreamProcessor {
       if (
         normalizedKey === "id" &&
         normalizedParent &&
-        normalizedParent.includes("session")
+        (normalizedParent.includes("session") ||
+          normalizedParent.includes("thread"))
       ) {
         const candidate = this.findSessionIdRecursively(
           child,

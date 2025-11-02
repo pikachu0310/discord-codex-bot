@@ -3,6 +3,7 @@ import {
   supportsExecColorFlag,
   supportsExecJsonMode,
   supportsDangerouslyBypassFlag,
+  supportsSearchFlag,
   supportsLegacyOutputFormatFlag,
   shouldUseVerboseFlag,
   shouldUseDangerouslySkipPermissionsFlag,
@@ -23,6 +24,7 @@ export class WorkerConfiguration {
   private useOutputFormatFlag: boolean;
   private useCliVerboseFlag: boolean;
   private useDangerouslySkipPermissionsFlag: boolean;
+  private useSearchFlag: boolean;
 
   constructor(
     verbose = false,
@@ -39,6 +41,7 @@ export class WorkerConfiguration {
     this.useExecColorFlag = this.useExecJsonMode && supportsExecColorFlag();
     this.useDangerouslyBypassFlag = this.dangerouslySkipPermissions &&
       this.useExecJsonMode && supportsDangerouslyBypassFlag();
+    this.useSearchFlag = supportsSearchFlag();
     this.useOutputFormatFlag = !this.useExecJsonMode &&
       supportsLegacyOutputFormatFlag();
     this.useCliVerboseFlag = shouldUseVerboseFlag();
@@ -178,6 +181,10 @@ export class WorkerConfiguration {
   buildCodexArgs(prompt: string, sessionId?: string | null): string[] {
     const args: string[] = [];
 
+    if (this.useSearchFlag) {
+      args.push("--search");
+    }
+
     if (this.useExecJsonMode) {
       args.push("exec");
       args.push("--json");
@@ -274,6 +281,10 @@ export class WorkerConfiguration {
    */
   disableDangerouslySkipPermissionsFlag(): void {
     this.useDangerouslySkipPermissionsFlag = false;
+  }
+
+  disableSearchFlag(): void {
+    this.useSearchFlag = false;
   }
 
   /**
