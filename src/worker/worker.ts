@@ -2,15 +2,16 @@ import { GitRepository } from "../git-utils.ts";
 import { WorkerState, WorkspaceManager } from "../workspace/workspace.ts";
 import { PLaMoTranslator } from "../plamo-translator.ts";
 import { MessageFormatter } from "./message-formatter.ts";
+import { splitIntoDiscordChunks } from "../utils/discord-message.ts";
 import {
   CodexCodeRateLimitError,
+  type CodexExecJsonEvent,
   type CodexStreamMessage,
   CodexStreamProcessor,
+  isCodexExecJsonEvent,
+  isLegacyCodexStreamMessage,
   JsonParseError,
   SchemaValidationError,
-  type CodexExecJsonEvent,
-  isLegacyCodexStreamMessage,
-  isCodexExecJsonEvent,
 } from "./codex-stream-processor.ts";
 import { WorkerConfiguration } from "./worker-configuration.ts";
 import { SessionLogger } from "./session-logger.ts";
@@ -252,14 +253,20 @@ export class Worker implements IWorker {
       this.logVerbose("ストリーミング実行開始");
       lastResult = await this.executeCodexStreaming(args, onProgress);
 
-      if (lastResult.isErr() && lastResult.error.type === "CODEX_CLI_UNSUPPORTED_OPTION") {
+      if (
+        lastResult.isErr() &&
+        lastResult.error.type === "CODEX_CLI_UNSUPPORTED_OPTION"
+      ) {
         if (
           lastResult.error.option === "--output-format" &&
           attempt < maxAttempts - 1
         ) {
-          this.logVerbose("Codex CLIが--output-formatをサポートしていないため再試行", {
-            stderr: lastResult.error.stderr,
-          });
+          this.logVerbose(
+            "Codex CLIが--output-formatをサポートしていないため再試行",
+            {
+              stderr: lastResult.error.stderr,
+            },
+          );
           this.configuration.disableOutputFormatFlag();
           continue;
         }
@@ -269,9 +276,12 @@ export class Worker implements IWorker {
           this.configuration.shouldUseCliVerboseFlag() &&
           attempt < maxAttempts - 1
         ) {
-          this.logVerbose("Codex CLIが--verboseをサポートしていないため再試行", {
-            stderr: lastResult.error.stderr,
-          });
+          this.logVerbose(
+            "Codex CLIが--verboseをサポートしていないため再試行",
+            {
+              stderr: lastResult.error.stderr,
+            },
+          );
           this.configuration.disableVerboseFlag();
           continue;
         }
@@ -295,9 +305,12 @@ export class Worker implements IWorker {
           lastResult.error.option === "--search" &&
           attempt < maxAttempts - 1
         ) {
-          this.logVerbose("Codex CLIが--searchをサポートしていないためフラグを無効化", {
-            stderr: lastResult.error.stderr,
-          });
+          this.logVerbose(
+            "Codex CLIが--searchをサポートしていないためフラグを無効化",
+            {
+              stderr: lastResult.error.stderr,
+            },
+          );
           this.configuration.disableSearchFlag();
           continue;
         }
@@ -306,10 +319,13 @@ export class Worker implements IWorker {
           ["--json", "exec", "resume"].includes(lastResult.error.option) &&
           attempt < maxAttempts - 1
         ) {
-          this.logVerbose("Codex CLIのexec/jsonモードに非対応のためレガシーモードへ切り替え", {
-            option: lastResult.error.option,
-            stderr: lastResult.error.stderr,
-          });
+          this.logVerbose(
+            "Codex CLIのexec/jsonモードに非対応のためレガシーモードへ切り替え",
+            {
+              option: lastResult.error.option,
+              stderr: lastResult.error.stderr,
+            },
+          );
           this.configuration.disableExecJsonMode();
           continue;
         }
@@ -318,15 +334,19 @@ export class Worker implements IWorker {
           lastResult.error.option === "--color" &&
           attempt < maxAttempts - 1
         ) {
-          this.logVerbose("Codex CLIが--colorをサポートしていないためフラグを無効化", {
-            stderr: lastResult.error.stderr,
-          });
+          this.logVerbose(
+            "Codex CLIが--colorをサポートしていないためフラグを無効化",
+            {
+              stderr: lastResult.error.stderr,
+            },
+          );
           this.configuration.disableExecColorFlag();
           continue;
         }
 
         if (
-          lastResult.error.option === "--dangerously-bypass-approvals-and-sandbox" &&
+          lastResult.error.option ===
+            "--dangerously-bypass-approvals-and-sandbox" &&
           attempt < maxAttempts - 1
         ) {
           this.logVerbose(
@@ -347,9 +367,12 @@ export class Worker implements IWorker {
         attempt < maxAttempts - 1
       ) {
         this.requiresTtyForCodex = true;
-        this.logVerbose("Codex CLIがTTY出力を要求したため擬似TTYモードで再試行", {
-          stderr: lastResult.error.stderr,
-        });
+        this.logVerbose(
+          "Codex CLIがTTY出力を要求したため擬似TTYモードで再試行",
+          {
+            stderr: lastResult.error.stderr,
+          },
+        );
         continue;
       }
 
@@ -405,8 +428,10 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
 
     if (systemPromptIndex !== -1) {
       const current = modifiedArgs[systemPromptIndex];
-      if (current === "--append-system-prompt" &&
-        systemPromptIndex < modifiedArgs.length - 1) {
+      if (
+        current === "--append-system-prompt" &&
+        systemPromptIndex < modifiedArgs.length - 1
+      ) {
         modifiedArgs[systemPromptIndex + 1] += planModePrompt;
       } else if (current.startsWith("--append-system-prompt=")) {
         modifiedArgs[systemPromptIndex] = `${current}${planModePrompt}`;
@@ -637,9 +662,14 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
             parsed,
             outputMessage,
           );
-          onProgress(this.formatter.formatResponse(outputMessage)).catch(
-            console.error,
-          );
+          const formatted = this.formatter.formatResponse(outputMessage);
+          const chunks = splitIntoDiscordChunks(formatted);
+          for (const chunk of chunks) {
+            if (chunk.trim().length === 0) {
+              continue;
+            }
+            onProgress(chunk).catch(console.error);
+          }
         }
       }
 
@@ -694,7 +724,14 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
 
         // 全文を投稿
         if (onProgress) {
-          onProgress(this.formatter.formatResponse(line)).catch(console.error);
+          const formatted = this.formatter.formatResponse(line);
+          const chunks = splitIntoDiscordChunks(formatted);
+          for (const chunk of chunks) {
+            if (chunk.trim().length === 0) {
+              continue;
+            }
+            onProgress(chunk).catch(console.error);
+          }
         }
       }
     }
@@ -743,7 +780,9 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
     updateState: (updates: { result?: string }) => void,
     streamProcessor: CodexStreamProcessor,
   ): void {
-    if (parsed.type === "item.completed" && parsed.item?.type === "agent_message") {
+    if (
+      parsed.type === "item.completed" && parsed.item?.type === "agent_message"
+    ) {
       const message = streamProcessor.extractOutputMessage(parsed);
       if (message) {
         if (streamProcessor.isCodexCodeRateLimit(message)) {
@@ -756,11 +795,15 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
       }
     }
 
-    if (parsed.type === "turn.completed" || parsed.type === "response.completed") {
+    if (
+      parsed.type === "turn.completed" || parsed.type === "response.completed"
+    ) {
       const finalMessage = streamProcessor.extractExecResponseText(parsed);
       if (finalMessage) {
         if (streamProcessor.isCodexCodeRateLimit(finalMessage)) {
-          const timestamp = streamProcessor.extractRateLimitTimestamp(finalMessage);
+          const timestamp = streamProcessor.extractRateLimitTimestamp(
+            finalMessage,
+          );
           if (timestamp !== null) {
             throw new CodexCodeRateLimitError(timestamp);
           }
@@ -963,7 +1006,11 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
       });
     }
 
-    if (stderrMessage.includes("unexpected argument '--dangerously-skip-permissions'")) {
+    if (
+      stderrMessage.includes(
+        "unexpected argument '--dangerously-skip-permissions'",
+      )
+    ) {
       this.logVerbose(
         "Codex CLIが--dangerously-skip-permissionsを認識しないエラーを検出",
         {

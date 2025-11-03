@@ -20,6 +20,11 @@ import { Admin } from "./admin/admin.ts";
 import { getEnv } from "./env.ts";
 import { ensureRepository, parseRepository } from "./git-utils.ts";
 import { createDevcontainerProgressHandler } from "./utils/devcontainer-progress.ts";
+import { splitIntoDiscordChunks } from "./utils/discord-message.ts";
+
+function chunkDiscordContent(content: string): string[] {
+  return splitIntoDiscordChunks(content).filter((chunk) => chunk.length > 0);
+}
 import { RepositoryPatInfo, WorkspaceManager } from "./workspace/workspace.ts";
 import {
   checkSystemRequirements,
@@ -235,10 +240,14 @@ client.once(Events.ClientReady, async (readyClient) => {
         // 進捗コールバック
         const onProgress = async (content: string) => {
           try {
-            await channel.send({
-              content: content,
-              flags: 4096, // SUPPRESS_NOTIFICATIONS flag
-            });
+            const chunks = chunkDiscordContent(content);
+            for (const chunk of chunks) {
+              if (!chunk.length) continue;
+              await channel.send({
+                content: chunk,
+                flags: 4096, // SUPPRESS_NOTIFICATIONS flag
+              });
+            }
           } catch (sendError) {
             console.error("自動再開メッセージ送信エラー:", sendError);
           }
@@ -270,7 +279,15 @@ client.once(Events.ClientReady, async (readyClient) => {
         const reply = replyResult.value;
 
         if (typeof reply === "string") {
-          await (channel as TextChannel).send(reply);
+          const chunks = chunkDiscordContent(reply);
+          if (chunks.length === 0) {
+            return;
+          }
+          const [first, ...rest] = chunks;
+          await (channel as TextChannel).send(first);
+          for (const chunk of rest) {
+            await (channel as TextChannel).send(chunk);
+          }
         } else {
           await (channel as TextChannel).send({
             content: reply.content,
@@ -1086,11 +1103,18 @@ client.on(Events.MessageCreate, async (message) => {
       const now = Date.now();
       if (now - lastUpdateTime >= UPDATE_INTERVAL) {
         try {
-          await message.channel.send({
-            content: content,
-            flags: 4096, // SUPPRESS_NOTIFICATIONS flag
-          });
-          lastUpdateTime = now;
+          const chunks = chunkDiscordContent(content);
+          if (chunks.length === 0) {
+            return;
+          }
+          for (const chunk of chunks) {
+            if (!chunk.length) continue;
+            await message.channel.send({
+              content: chunk,
+              flags: 4096, // SUPPRESS_NOTIFICATIONS flag
+            });
+          }
+          lastUpdateTime = Date.now();
         } catch (sendError) {
           console.error("メッセージ送信エラー:", sendError);
         }
@@ -1139,8 +1163,15 @@ client.on(Events.MessageCreate, async (message) => {
 
     // 最終的な返信を送信
     if (typeof reply === "string") {
-      // 通常のテキストレスポンス（リプライ機能使用）
-      await message.reply(reply);
+      const chunks = chunkDiscordContent(reply);
+      if (chunks.length === 0) {
+        return;
+      }
+      const [first, ...rest] = chunks;
+      await message.reply(first);
+      for (const chunk of rest) {
+        await message.channel.send(chunk);
+      }
     } else {
       // DiscordMessage形式（ボタン付きメッセージなど）
       await message.reply({

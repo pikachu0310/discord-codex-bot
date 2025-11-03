@@ -14,12 +14,7 @@ Deno.test("MessageFormatter - formatResponse - 長いメッセージは切り詰
   const message = "あ".repeat(2000);
   const result = formatter.formatResponse(message);
 
-  // 1900文字以下であることを確認
-  assertEquals(result.length <= 1900 + 50, true); // 省略メッセージ分の余裕を持つ
-  assertEquals(
-    result.includes("*（応答が長いため、一部のみ表示しています）*"),
-    true,
-  );
+  assertEquals(result.length, message.length);
 });
 
 Deno.test("MessageFormatter - formatResponse - ANSIコードを除去", () => {
@@ -41,7 +36,10 @@ Deno.test("MessageFormatter - formatToolUse - Bashツール", () => {
     },
   } satisfies Anthropic.Messages.ToolUseBlock;
   const result = formatter.formatToolUse(item);
-  assertEquals(result, "⚡ **Bash**: ファイル一覧表示");
+  assertEquals(
+    result,
+    "⚡ **Bash**: ファイル一覧表示\n```bash\nls -la\n```",
+  );
 });
 
 Deno.test("MessageFormatter - formatToolUse - TodoWriteツール", () => {
@@ -111,8 +109,10 @@ Deno.test("MessageFormatter - formatToolResult - エラー結果", () => {
   const formatter = new MessageFormatter();
   const content = "Error: ファイルが見つかりません\n詳細情報\nデバッグ情報";
   const result = formatter.formatToolResult(content, true);
-  assertEquals(result.includes("Error: ファイルが見つかりません"), true);
-  assertEquals(result.includes("```"), true);
+  assertEquals(
+    result,
+    "```\nError: ファイルが見つかりません\n詳細情報\nデバッグ情報\n```",
+  );
 });
 
 Deno.test("MessageFormatter - formatTodoList", () => {

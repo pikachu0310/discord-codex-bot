@@ -10,7 +10,7 @@ export const RATE_LIMIT = {
 // Discord関連の定数
 export const DISCORD = {
   MAX_MESSAGE_LENGTH: 2000,
-  TRUNCATE_LENGTH: 1900,
+  MESSAGE_CHUNK_LENGTH: 1500,
 } as const;
 
 // メッセージフォーマット関連の定数
