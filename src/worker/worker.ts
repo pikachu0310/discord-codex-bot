@@ -658,17 +658,26 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
       if (onProgress) {
         const outputMessage = streamProcessor.extractOutputMessage(parsed);
         if (outputMessage) {
-          this.lastActivityDescription = this.extractActivityDescription(
-            parsed,
-            outputMessage,
-          );
-          const formatted = this.formatter.formatResponse(outputMessage);
-          const chunks = splitIntoDiscordChunks(formatted);
-          for (const chunk of chunks) {
-            if (chunk.trim().length === 0) {
-              continue;
+          const shouldSuppressProgress = isCodexExecJsonEvent(parsed) &&
+            (parsed.type === "turn.completed" ||
+              parsed.type === "response.completed");
+          if (shouldSuppressProgress) {
+            this.logVerbose(
+              "最終レスポンスは進捗更新として送信せずにDiscord返信に任せる",
+            );
+          } else {
+            this.lastActivityDescription = this.extractActivityDescription(
+              parsed,
+              outputMessage,
+            );
+            const formatted = this.formatter.formatResponse(outputMessage);
+            const chunks = splitIntoDiscordChunks(formatted);
+            for (const chunk of chunks) {
+              if (chunk.trim().length === 0) {
+                continue;
+              }
+              onProgress(chunk).catch(console.error);
             }
-            onProgress(chunk).catch(console.error);
           }
         }
       }
