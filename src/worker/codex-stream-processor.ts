@@ -133,6 +133,15 @@ export interface CodexExecJsonEvent {
   item?: CodexExecItem;
   session_id?: string;
   session?: { id?: string };
+  delta?: unknown;
+  command_output?: {
+    stdout?: string;
+    stdout_delta?: string;
+    stderr?: string;
+    stderr_delta?: string;
+    output_text?: string | CodexExecItemContent[];
+  };
+  content?: unknown;
   result?: string;
   response?: {
     output_text?: string | CodexExecItemContent[];
@@ -311,27 +320,24 @@ export class CodexStreamProcessor {
     }
 
     if (isCodexExecJsonEvent(parsed)) {
-      if (parsed.type.startsWith("item.")) {
-        const text = this.extractExecItemText(parsed.item);
-        if (!text) {
-          return null;
+      const text = this.extractExecEventText(parsed);
+      if (text) {
+        const itemType = this.getExecItemType(parsed);
+        if (itemType === "reasoning") {
+          return `🤔 ${text}`;
         }
 
-        const itemType = parsed.item?.type;
-        switch (itemType) {
-          case "reasoning":
-            return `🤔 ${text}`;
-          case "tool_result":
-          case "tool_response":
-          case "command_result":
-            return `${parsed.item?.is_error ? "❌" : "✅"} **ツール実行結果:**\n${
-              this.formatter.formatToolResult(
-                text,
-                parsed.item?.is_error ?? false,
-              )
-            }`;
-          default:
-            return text;
+        if (this.isToolResultLike(itemType)) {
+          return `${parsed.item?.is_error ? "❌" : "✅"} **ツール実行結果:**\n${
+            this.formatter.formatToolResult(
+              text,
+              parsed.item?.is_error ?? false,
+            )
+          }`;
+        }
+
+        if (parsed.type.startsWith("item.")) {
+          return text;
         }
       }
 
@@ -339,13 +345,185 @@ export class CodexStreamProcessor {
         return `❌ Codexエラー: ${parsed.error.message}`;
       }
 
-      if (parsed.type === "turn.completed" ||
-        parsed.type === "response.completed") {
+      if (
+        parsed.type === "turn.completed" ||
+        parsed.type === "response.completed"
+      ) {
         return this.extractExecResponseText(parsed);
       }
     }
 
     return null;
+  }
+
+  private extractExecEventText(
+    parsed: CodexExecJsonEvent,
+  ): string | null {
+    const segments: string[] = [];
+
+    const itemText = this.extractExecItemText(parsed.item);
+    if (itemText) {
+      segments.push(itemText);
+    }
+
+    const deltaText = this.extractTextFromUnknown(parsed.delta);
+    if (deltaText) {
+      segments.push(deltaText);
+    }
+
+    const commandOutputText = this.extractCommandOutputText(parsed);
+    if (commandOutputText) {
+      segments.push(commandOutputText);
+    }
+
+    const contentText = this.extractTextFromUnknown(parsed.content);
+    if (contentText) {
+      segments.push(contentText);
+    }
+
+    const messageText = this.extractTextFromUnknown(
+      (parsed as { message?: unknown }).message,
+    );
+    if (messageText) {
+      segments.push(messageText);
+    }
+
+    if (segments.length === 0) {
+      return null;
+    }
+
+    return segments.join("");
+  }
+
+  private extractCommandOutputText(
+    parsed: CodexExecJsonEvent,
+  ): string | null {
+    const candidates = [
+      parsed.command_output,
+      (parsed.item as { command_output?: unknown })?.command_output,
+    ];
+
+    for (const candidate of candidates) {
+      const text = this.extractTextFromUnknown(candidate);
+      if (text) {
+        return text;
+      }
+    }
+
+    return null;
+  }
+
+  private extractTextFromUnknown(value: unknown): string | null {
+    if (value === null || value === undefined) {
+      return null;
+    }
+
+    const parts: string[] = [];
+    const seen = new WeakSet<object>();
+
+    const visit = (node: unknown, depth: number) => {
+      if (node === null || node === undefined || depth > 5) {
+        return;
+      }
+
+      if (typeof node === "string") {
+        if (node.length > 0) {
+          parts.push(node);
+        }
+        return;
+      }
+
+      if (typeof node === "number") {
+        parts.push(String(node));
+        return;
+      }
+
+      if (Array.isArray(node)) {
+        for (const entry of node) {
+          visit(entry, depth + 1);
+        }
+        return;
+      }
+
+      if (typeof node !== "object") {
+        return;
+      }
+
+      const objectNode = node as Record<string, unknown>;
+      if (seen.has(objectNode)) {
+        return;
+      }
+      seen.add(objectNode);
+
+      const keysToTraverse = [
+        "text",
+        "text_delta",
+        "data",
+        "stdout",
+        "stdout_delta",
+        "stderr",
+        "stderr_delta",
+        "message",
+        "command_output",
+      ];
+
+      for (const key of keysToTraverse) {
+        if (key in objectNode) {
+          visit(objectNode[key], depth + 1);
+        }
+      }
+
+      if ("output_text" in objectNode) {
+        visit(objectNode.output_text, depth + 1);
+      }
+
+      if ("content" in objectNode) {
+        visit(objectNode.content, depth + 1);
+      }
+
+      if ("delta" in objectNode) {
+        visit(objectNode.delta, depth + 1);
+      }
+    };
+
+    visit(value, 0);
+    if (parts.length === 0) {
+      return null;
+    }
+
+    return parts.join("");
+  }
+
+  private getExecItemType(parsed: CodexExecJsonEvent): string | null {
+    if (parsed.item?.type) {
+      return parsed.item.type;
+    }
+
+    if (parsed.type.startsWith("item.")) {
+      const [, remainder] = parsed.type.split("item.");
+      if (remainder) {
+        const [typeCandidate] = remainder.split(".");
+        if (typeCandidate) {
+          return typeCandidate;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  private isToolResultLike(type: string | null | undefined): boolean {
+    if (!type) {
+      return false;
+    }
+
+    const normalized = type.toLowerCase();
+    return [
+      "tool_result",
+      "tool_response",
+      "command_result",
+      "command_output",
+    ].includes(normalized);
   }
 
   extractSessionId(
@@ -418,8 +596,16 @@ export class CodexStreamProcessor {
   extractUsageCounts(
     parsed: CodexStreamMessage | CodexExecJsonEvent,
   ): { inputTokens: number; outputTokens: number } | null {
-    const usage = isLegacyCodexStreamMessage(parsed) ? parsed.usage :
-      (isCodexExecJsonEvent(parsed) ? parsed.usage : undefined);
+    const usage = isLegacyCodexStreamMessage(parsed)
+      ? (parsed as {
+        usage?: {
+          input_tokens?: number;
+          cache_creation_input_tokens?: number;
+          cache_read_input_tokens?: number;
+          output_tokens?: number;
+        };
+      }).usage
+      : (isCodexExecJsonEvent(parsed) ? parsed.usage : undefined);
 
     if (!usage) {
       return null;
@@ -597,7 +783,8 @@ export class CodexStreamProcessor {
       if (typeof deltaText === "string") {
         parts.push(deltaText);
       }
-      const deltaTextDelta = (item.delta as { text_delta?: unknown }).text_delta;
+      const deltaTextDelta =
+        (item.delta as { text_delta?: unknown }).text_delta;
       if (typeof deltaTextDelta === "string") {
         parts.push(deltaTextDelta);
       }
@@ -755,9 +942,11 @@ export class CodexStreamProcessor {
       return null;
     }
 
-    for (const [key, child] of Object.entries(
-      value as Record<string, unknown>,
-    )) {
+    for (
+      const [key, child] of Object.entries(
+        value as Record<string, unknown>,
+      )
+    ) {
       const normalizedKey = key.toLowerCase();
 
       if (

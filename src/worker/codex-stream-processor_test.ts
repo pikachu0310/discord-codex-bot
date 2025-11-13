@@ -1,6 +1,7 @@
 import { assertEquals } from "https://deno.land/std@0.211.0/assert/mod.ts";
 import {
   CodexCodeRateLimitError,
+  CodexExecJsonEvent,
   CodexStreamMessage,
   CodexStreamProcessor,
 } from "./codex-stream-processor.ts";
@@ -72,7 +73,10 @@ Deno.test("CodexStreamProcessor - extractOutputMessage - tool_useメッセージ
   } satisfies CodexStreamMessage;
 
   const result = processor.extractOutputMessage(message);
-  assertEquals(result, "⚡ **Bash**: ファイル一覧");
+  assertEquals(
+    result,
+    "⚡ **Bash**: ファイル一覧\n```bash\nls\n```",
+  );
 });
 
 Deno.test("CodexStreamProcessor - extractOutputMessage - resultメッセージは無視", () => {
@@ -182,4 +186,62 @@ Deno.test("CodexCodeRateLimitError - エラー作成", () => {
   assertEquals(error.name, "CodexCodeRateLimitError");
   assertEquals(error.timestamp, timestamp);
   assertEquals(error.message, `Codex AI usage limit reached|${timestamp}`);
+});
+
+Deno.test("CodexStreamProcessor - command_output deltaをツール結果として処理する", () => {
+  const formatter = new MessageFormatter();
+  const processor = new CodexStreamProcessor(formatter);
+
+  const event = {
+    type: "item.command_output.delta",
+    item: {
+      id: "cmd_123",
+      type: "command_output",
+      is_error: false,
+    },
+    delta: {
+      command_output: {
+        stdout_delta: "Running tests...\nAll green!\n",
+      },
+    },
+    session_id: "session-123",
+  };
+
+  const result = processor.extractOutputMessage(
+    event as unknown as CodexExecJsonEvent,
+  );
+
+  assertEquals(
+    result,
+    "✅ **ツール実行結果:**\n```\nRunning tests...\nAll green!\n\n```",
+  );
+});
+
+Deno.test("CodexStreamProcessor - command_outputのエラー出力を処理する", () => {
+  const formatter = new MessageFormatter();
+  const processor = new CodexStreamProcessor(formatter);
+
+  const event = {
+    type: "item.command_output.delta",
+    item: {
+      id: "cmd_456",
+      type: "command_output",
+      is_error: true,
+    },
+    delta: {
+      command_output: {
+        stderr_delta: "Traceback (most recent call last)",
+      },
+    },
+    session_id: "session-123",
+  };
+
+  const result = processor.extractOutputMessage(
+    event as unknown as CodexExecJsonEvent,
+  );
+
+  assertEquals(
+    result,
+    "❌ **ツール実行結果:**\n```\nTraceback (most recent call last)\n```",
+  );
 });
