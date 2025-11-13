@@ -361,19 +361,30 @@ export class CodexStreamProcessor {
   ): string | null {
     const segments: string[] = [];
 
-    const itemText = this.extractExecItemText(parsed.item);
-    if (itemText) {
-      segments.push(itemText);
-    }
-
-    const deltaText = this.extractTextFromUnknown(parsed.delta);
-    if (deltaText) {
-      segments.push(deltaText);
+    if (!this.isCommandOutputEvent(parsed)) {
+      const itemText = this.extractExecItemText(parsed.item);
+      if (itemText) {
+        segments.push(itemText);
+      }
     }
 
     const commandOutputText = this.extractCommandOutputText(parsed);
     if (commandOutputText) {
       segments.push(commandOutputText);
+    }
+
+    const commandMetadata = commandOutputText
+      ? null
+      : this.extractCommandMetadata(parsed);
+    if (commandMetadata) {
+      segments.push(commandMetadata);
+    }
+
+    const deltaText = commandOutputText
+      ? null
+      : this.extractTextFromUnknown(parsed.delta);
+    if (deltaText) {
+      segments.push(deltaText);
     }
 
     const contentText = this.extractTextFromUnknown(parsed.content);
@@ -407,6 +418,94 @@ export class CodexStreamProcessor {
       const text = this.extractTextFromUnknown(candidate);
       if (text) {
         return text;
+      }
+    }
+
+    return null;
+  }
+
+  private extractCommandMetadata(
+    parsed: CodexExecJsonEvent,
+  ): string | null {
+    const commandString = this.extractCommandString(parsed);
+    if (!commandString) {
+      return null;
+    }
+
+    const shell = this.extractShellName(parsed);
+    const language = shell === "fish" ? "fish" : "bash";
+    const label = shell ? ` (${shell})` : "";
+    return `💻 **Command${label}:**\n\`\`\`${language}\n${commandString}\n\`\`\``;
+  }
+
+  private extractCommandString(parsed: CodexExecJsonEvent): string | null {
+    const candidates = [
+      (parsed.delta as { command?: unknown })?.command,
+      (parsed.delta as { command_line?: unknown })?.command_line,
+      (parsed.delta as { commandLine?: unknown })?.commandLine,
+      (parsed.delta as { command_args?: unknown })?.command_args,
+      parsed.command_output,
+      (parsed.item as { command?: unknown })?.command,
+      (parsed.item as { command_line?: unknown })?.command_line,
+      (parsed.item as { commandLine?: unknown })?.commandLine,
+      (parsed.item as { command_args?: unknown })?.command_args,
+      (parsed as { command?: unknown }).command,
+      (parsed as { command_line?: unknown }).command_line,
+      (parsed as { commandLine?: unknown }).commandLine,
+    ];
+
+    for (const candidate of candidates) {
+      const formatted = this.normalizeCommandCandidate(candidate);
+      if (formatted) {
+        return formatted;
+      }
+    }
+
+    return null;
+  }
+
+  private extractShellName(parsed: CodexExecJsonEvent): string | null {
+    const candidates = [
+      (parsed.delta as { shell?: unknown })?.shell,
+      (parsed.delta as { command_output?: { shell?: unknown } })
+        ?.command_output?.shell,
+      (parsed.command_output as { shell?: unknown })?.shell,
+      (parsed.item as { shell?: unknown })?.shell,
+    ];
+
+    for (const candidate of candidates) {
+      if (typeof candidate === "string" && candidate.trim()) {
+        return candidate.trim();
+      }
+    }
+
+    return null;
+  }
+
+  private normalizeCommandCandidate(value: unknown): string | null {
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      return trimmed.length > 0 ? trimmed : null;
+    }
+
+    if (Array.isArray(value)) {
+      const tokens = value
+        .map((token) => this.normalizeCommandCandidate(token))
+        .filter((token): token is string => !!token);
+      if (tokens.length === 0) {
+        return null;
+      }
+      return tokens.join(" ");
+    }
+
+    if (value && typeof value === "object") {
+      const maybeValue = (value as { command?: unknown }).command;
+      if (maybeValue) {
+        return this.normalizeCommandCandidate(maybeValue);
+      }
+      const maybeLine = (value as { command_line?: unknown }).command_line;
+      if (maybeLine) {
+        return this.normalizeCommandCandidate(maybeLine);
       }
     }
 
@@ -464,7 +563,6 @@ export class CodexStreamProcessor {
         "stderr",
         "stderr_delta",
         "message",
-        "command_output",
       ];
 
       for (const key of keysToTraverse) {
@@ -510,6 +608,19 @@ export class CodexStreamProcessor {
     }
 
     return null;
+  }
+
+  private isCommandOutputEvent(parsed: CodexExecJsonEvent): boolean {
+    if (
+      parsed.item?.type &&
+      parsed.item.type.toLowerCase().includes("command_")
+    ) {
+      return true;
+    }
+    if (parsed.type.toLowerCase().includes("command_")) {
+      return true;
+    }
+    return false;
   }
 
   private isToolResultLike(type: string | null | undefined): boolean {

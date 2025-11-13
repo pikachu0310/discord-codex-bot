@@ -20,7 +20,10 @@ Deno.test("TokenUsageTracker - 基本的なトークン追跡", () => {
 });
 
 Deno.test("TokenUsageTracker - ステータス文字列生成", () => {
-  const tracker = new TokenUsageTracker();
+  const tracker = new TokenUsageTracker({
+    fiveHourLimit: 100000,
+    weeklyLimit: 500000,
+  });
 
   // トークン使用量を追加
   tracker.addTokenUsage(25000, 25000);
@@ -30,6 +33,8 @@ Deno.test("TokenUsageTracker - ステータス文字列生成", () => {
   // 50000/100000 (50%) の形式で表示されることを確認
   assertEquals(statusString.includes("50000/100000"), true);
   assertEquals(statusString.includes("(50%)"), true);
+  assertEquals(statusString.includes("5h:"), true);
+  assertEquals(statusString.includes("1w:"), true);
   assertEquals(statusString.includes("次回リセット:"), true);
 });
 
@@ -62,4 +67,23 @@ Deno.test("TokenUsageTracker - リセット機能", () => {
   tracker.reset();
   assertEquals(tracker.getCurrentUsage(), 0);
   assertEquals(tracker.getUsagePercentage(), 0);
+});
+
+Deno.test("TokenUsageTracker - 時間窓ごとの使用率計算", () => {
+  let current = Date.parse("2025-01-01T00:00:00Z");
+  const tracker = new TokenUsageTracker({
+    fiveHourLimit: 1000,
+    weeklyLimit: 10000,
+    now: () => current,
+  });
+
+  tracker.addTokenUsage(100, 0); // t = 0h
+  current += 2 * 60 * 60 * 1000;
+  tracker.addTokenUsage(200, 0); // t = 2h
+  current += 4 * 60 * 60 * 1000;
+  tracker.addTokenUsage(300, 0); // t = 6h
+
+  const status = tracker.getStatusString();
+  assertEquals(status.includes("5h:50%"), true);
+  assertEquals(status.includes("1w:6%"), true);
 });

@@ -117,6 +117,10 @@ const admin = Admin.fromState(
   env.VERBOSE,
   env.CODEX_APPEND_SYSTEM_PROMPT,
   env.PLAMO_TRANSLATOR_URL,
+  {
+    fiveHourLimit: env.CODEX_LIMIT_5H_TOKENS,
+    weeklyLimit: env.CODEX_LIMIT_1W_TOKENS,
+  },
 );
 
 if (env.VERBOSE) {

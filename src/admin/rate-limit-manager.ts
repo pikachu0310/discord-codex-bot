@@ -8,6 +8,7 @@ import { RATE_LIMIT } from "../constants.ts";
 import type { Client } from "discord.js";
 import { ActivityType, PresenceUpdateStatus } from "discord.js";
 import { TokenUsageTracker } from "../token-usage-tracker.ts";
+import type { TokenUsageTrackerOptions } from "../token-usage-tracker.ts";
 
 export class RateLimitManager {
   private autoResumeTimers: Map<string, ReturnType<typeof setTimeout>> =
@@ -24,10 +25,11 @@ export class RateLimitManager {
   constructor(
     workspaceManager: WorkspaceManager,
     verbose = false,
+    tokenUsageOptions?: TokenUsageTrackerOptions,
   ) {
     this.workspaceManager = workspaceManager;
     this.verbose = verbose;
-    this.tokenUsageTracker = new TokenUsageTracker();
+    this.tokenUsageTracker = new TokenUsageTracker(tokenUsageOptions);
   }
 
   /**

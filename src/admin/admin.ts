@@ -12,6 +12,7 @@ import { DevcontainerManager } from "./devcontainer-manager.ts";
 import { MessageRouter } from "./message-router.ts";
 import { err, ok, Result } from "neverthrow";
 import type { Client } from "discord.js";
+import type { TokenUsageTrackerOptions } from "../token-usage-tracker.ts";
 
 export class Admin implements IAdmin {
   private state: AdminState;
@@ -29,13 +30,18 @@ export class Admin implements IAdmin {
     verbose = false,
     appendSystemPrompt?: string,
     translatorUrl?: string,
+    tokenUsageOptions?: TokenUsageTrackerOptions,
   ) {
     this.state = state;
     this.workspaceManager = workspaceManager;
     this.verbose = verbose;
 
     // 各マネージャーを初期化
-    this.rateLimitManager = new RateLimitManager(workspaceManager, verbose);
+    this.rateLimitManager = new RateLimitManager(
+      workspaceManager,
+      verbose,
+      tokenUsageOptions,
+    );
     this.workerManager = new WorkerManager(
       workspaceManager,
       verbose,
@@ -768,6 +774,7 @@ export class Admin implements IAdmin {
     verbose?: boolean,
     appendSystemPrompt?: string,
     translatorUrl?: string,
+    tokenUsageOptions?: TokenUsageTrackerOptions,
   ): Admin {
     const state = adminState || {
       activeThreadIds: [],
@@ -780,6 +787,7 @@ export class Admin implements IAdmin {
       verbose,
       appendSystemPrompt,
       translatorUrl,
+      tokenUsageOptions,
     );
   }
 
