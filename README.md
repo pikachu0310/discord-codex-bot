@@ -9,14 +9,14 @@
 
 ## Quick Start: 触ってイメージを掴む
 
-1. Bot を招待したサーバーで `/start pikachu0310/discord-claude-code` のように GitHub リポジトリを指定して実行します。  
+1. Bot を招待したサーバーで `/start pikachu0310/discord-codex-bot` のように GitHub リポジトリを指定して実行します。  
    オートコンプリートが効くので `owner/repo` の入力も簡単です。
 2. Bot は専用スレッドを作成し、バックエンドでリポジトリをクローン → Codex CLI に接続。  
    実行したコマンドや標準出力は 1,500 文字単位で分割され、Discord にすべて投稿されます。
 3. あとは通常のチャットのように「README を改善して」「テストを追加して」など指示すると Codex が対応します。
 
 ```text
-/start pikachu0310/discord-claude-code
+/start pikachu0310/discord-codex-bot
 Bot: ✅ スレッドを作成しました。Codex が環境を準備しています...
 ユーザー: 型定義まわりを整理して
 Bot: ⚡ Bash: git status --short
