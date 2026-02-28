@@ -456,6 +456,7 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
     let buffer = "";
     let result = "";
     let newSessionId: string | null = null;
+    let lastStreamErrorMessage: string | null = null;
     let allOutput = "";
     let processedLines = 0;
 
@@ -470,10 +471,17 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
         line,
         streamProcessor,
         onProgress,
-        { result, newSessionId },
+        { result, newSessionId, streamErrorMessage: lastStreamErrorMessage },
         (updates) => {
-          result = updates.result || result;
-          newSessionId = updates.newSessionId || newSessionId;
+          if (typeof updates.result === "string") {
+            result = updates.result;
+          }
+          if (updates.newSessionId !== undefined) {
+            newSessionId = updates.newSessionId;
+          }
+          if (updates.streamErrorMessage !== undefined) {
+            lastStreamErrorMessage = updates.streamErrorMessage;
+          }
         },
       );
     };
@@ -556,6 +564,25 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
     }
 
     if (code !== 0) {
+      const trimmedResult = result.trim();
+      const trimmedStreamError = lastStreamErrorMessage
+        ? (lastStreamErrorMessage as string).trim()
+        : "";
+      const fallbackResult = trimmedResult || trimmedStreamError;
+      if (fallbackResult) {
+        this.logVerbose(
+          "Codexが非ゼロ終了コードを返したがストリームからのエラー結果を採用",
+          {
+            exitCode: code,
+            hasStreamErrorMessage: !!lastStreamErrorMessage,
+          },
+        );
+        return await this.finalizeStreamProcessing(
+          fallbackResult,
+          newSessionId,
+          allOutput,
+        );
+      }
       return this.handleErrorMessage(code, stderr, allOutput);
     }
 
@@ -610,10 +637,15 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
     line: string,
     streamProcessor: CodexStreamProcessor,
     onProgress: ((content: string) => Promise<void>) | undefined,
-    state: { result: string; newSessionId: string | null },
+    state: {
+      result: string;
+      newSessionId: string | null;
+      streamErrorMessage: string | null;
+    },
     updateState: (updates: {
       result?: string;
       newSessionId?: string | null;
+      streamErrorMessage?: string | null;
     }) => void,
   ): void {
     // 空行はスキップ
@@ -748,8 +780,16 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
 
   private handleAssistantMessage(
     parsed: CodexStreamMessage,
-    state: { result: string; newSessionId: string | null },
-    updateState: (updates: { result?: string }) => void,
+    state: {
+      result: string;
+      newSessionId: string | null;
+      streamErrorMessage: string | null;
+    },
+    updateState: (updates: {
+      result?: string;
+      newSessionId?: string | null;
+      streamErrorMessage?: string | null;
+    }) => void,
   ): void {
     if (parsed.type === "assistant" && parsed.message?.content) {
       let textResult = "";
@@ -785,8 +825,16 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
 
   private handleExecJsonEvent(
     parsed: CodexExecJsonEvent,
-    _state: { result: string; newSessionId: string | null },
-    updateState: (updates: { result?: string }) => void,
+    _state: {
+      result: string;
+      newSessionId: string | null;
+      streamErrorMessage: string | null;
+    },
+    updateState: (updates: {
+      result?: string;
+      newSessionId?: string | null;
+      streamErrorMessage?: string | null;
+    }) => void,
     streamProcessor: CodexStreamProcessor,
   ): void {
     if (
@@ -821,6 +869,24 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
       }
     }
 
+    const normalizedType = parsed.type.toLowerCase();
+    if (
+      normalizedType === "response.error" ||
+      normalizedType.startsWith("error") ||
+      normalizedType.endsWith(".error")
+    ) {
+      const errorMessage = this.extractStreamErrorMessage(
+        parsed,
+        streamProcessor,
+      );
+      if (errorMessage) {
+        updateState({
+          result: errorMessage,
+          streamErrorMessage: errorMessage,
+        });
+      }
+    }
+
     if (this.rateLimitManager) {
       const usage = streamProcessor.extractUsageCounts(parsed);
       if (usage) {
@@ -835,6 +901,102 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
         });
       }
     }
+  }
+
+  private extractStreamErrorMessage(
+    parsed: CodexExecJsonEvent,
+    streamProcessor: CodexStreamProcessor,
+  ): string | null {
+    const formatted = streamProcessor.extractOutputMessage(parsed);
+    if (formatted) {
+      return formatted;
+    }
+
+    const message = this.extractFirstStringFromUnknown(parsed.error);
+    if (!message) {
+      return null;
+    }
+
+    const prefix = this.detectStreamErrorPrefix(parsed.type, message);
+    return `${prefix}: ${message}`;
+  }
+
+  private detectStreamErrorPrefix(type: string, message: string): string {
+    const normalizedType = type.toLowerCase();
+    if (
+      normalizedType.includes("mcp") ||
+      message.toLowerCase().includes("mcp")
+    ) {
+      return "❌ MCPサーバーエラー";
+    }
+    return "❌ Codexエラー";
+  }
+
+  private extractFirstStringFromUnknown(
+    value: unknown,
+    depth = 0,
+  ): string | null {
+    if (value === null || value === undefined || depth > 5) {
+      return null;
+    }
+
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      return trimmed.length > 0 ? trimmed : null;
+    }
+
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return String(value);
+    }
+
+    if (Array.isArray(value)) {
+      for (const entry of value) {
+        const candidate = this.extractFirstStringFromUnknown(
+          entry,
+          depth + 1,
+        );
+        if (candidate) {
+          return candidate;
+        }
+      }
+      return null;
+    }
+
+    if (typeof value === "object") {
+      const record = value as Record<string, unknown>;
+      const prioritizedKeys = [
+        "message",
+        "detail",
+        "details",
+        "error",
+        "data",
+        "text",
+        "description",
+      ];
+      for (const key of prioritizedKeys) {
+        if (key in record) {
+          const candidate = this.extractFirstStringFromUnknown(
+            record[key],
+            depth + 1,
+          );
+          if (candidate) {
+            return candidate;
+          }
+        }
+      }
+
+      for (const child of Object.values(record)) {
+        const candidate = this.extractFirstStringFromUnknown(
+          child,
+          depth + 1,
+        );
+        if (candidate) {
+          return candidate;
+        }
+      }
+    }
+
+    return null;
   }
 
   private handleResultMessage(

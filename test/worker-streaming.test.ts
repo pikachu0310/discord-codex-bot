@@ -1,5 +1,7 @@
-import { assertEquals } from "std/assert/mod.ts";
+import { assertEquals, assertStringIncludes } from "std/assert/mod.ts";
+import { ok } from "neverthrow";
 import { Worker } from "../src/worker/worker.ts";
+import type { CodexCommandExecutor } from "../src/worker/codex-executor.ts";
 import {
   createMockStreamingCodexCommandExecutor,
   createTestRepository,
@@ -113,7 +115,7 @@ Deno.test("Worker - エラー時のストリーミング処理", async () => {
     if (result.isOk()) {
       assertEquals(
         result.value,
-        "Codex からの応答を取得できませんでした。",
+        "❌ Codexエラー: エラーが発生しました",
       );
     }
 
@@ -163,6 +165,61 @@ Deno.test("Worker - 進捗コールバックなしでも動作する", async () 
     assertEquals(result.isOk(), true);
     if (result.isOk()) {
       assertEquals(result.value, "完了");
+    }
+  } finally {
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});
+
+Deno.test("Worker - MCPサーバーエラーでもエラーメッセージを返す", async () => {
+  const workspace = await createTestWorkspaceManager();
+  const tempDir = await Deno.makeTempDir();
+
+  try {
+    const streamData = [
+      '{"type":"system","subtype":"init","session_id":"test-session","tools":[]}\n',
+      '{"type":"response.error","error":{"type":"mcp_server","message":"MCP server filesystem: connection failed"}}\n',
+    ];
+
+    const mockExecutor: CodexCommandExecutor = {
+      async executeStreaming(
+        _args: string[],
+        _cwd: string,
+        onData: (data: Uint8Array) => void,
+        _abortSignal?: AbortSignal,
+        _onProcessStart?: (childProcess: Deno.ChildProcess) => void,
+        _env?: Record<string, string>,
+        _options?: { usePty?: boolean },
+      ) {
+        for (const chunk of streamData) {
+          onData(new TextEncoder().encode(chunk));
+        }
+        return ok({
+          code: 1,
+          stderr: new TextEncoder().encode("mcp server failed"),
+        });
+      },
+    };
+
+    const state = createTestWorkerState("test-worker", "test-thread-1");
+    const worker = new Worker(
+      state,
+      workspace,
+      mockExecutor,
+      undefined,
+      undefined,
+    );
+
+    const repository = createTestRepository("test", "repo");
+    worker.setUseDevcontainer(false);
+    await worker.setRepository(repository, tempDir);
+
+    const result = await worker.processMessage("mcp error");
+
+    assertEquals(result.isOk(), true);
+    if (result.isOk()) {
+      assertStringIncludes(result.value, "MCPサーバーエラー");
+      assertStringIncludes(result.value, "filesystem");
     }
   } finally {
     await Deno.remove(tempDir, { recursive: true });
