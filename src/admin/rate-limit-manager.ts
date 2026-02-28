@@ -9,6 +9,10 @@ import type { Client } from "discord.js";
 import { ActivityType, PresenceUpdateStatus } from "discord.js";
 import { TokenUsageTracker } from "../token-usage-tracker.ts";
 import type { TokenUsageTrackerOptions } from "../token-usage-tracker.ts";
+import {
+  CodexRateLimitStatusProvider,
+  type RateLimitStatusSource,
+} from "../codex-rate-limit-status.ts";
 
 export class RateLimitManager {
   private autoResumeTimers: Map<string, ReturnType<typeof setTimeout>> =
@@ -21,6 +25,7 @@ export class RateLimitManager {
     message: string,
   ) => Promise<void>;
   private tokenUsageTracker: TokenUsageTracker;
+  private rateLimitStatusSource: RateLimitStatusSource;
 
   constructor(
     workspaceManager: WorkspaceManager,
@@ -30,6 +35,7 @@ export class RateLimitManager {
     this.workspaceManager = workspaceManager;
     this.verbose = verbose;
     this.tokenUsageTracker = new TokenUsageTracker(tokenUsageOptions);
+    this.rateLimitStatusSource = new CodexRateLimitStatusProvider();
   }
 
   /**
@@ -46,6 +52,13 @@ export class RateLimitManager {
     callback: (threadId: string, message: string) => Promise<void>,
   ): void {
     this.onAutoResumeMessage = callback;
+  }
+
+  /**
+   * Discordステータス表示用のレートリミット取得元を差し替える
+   */
+  setRateLimitStatusSource(source: RateLimitStatusSource): void {
+    this.rateLimitStatusSource = source;
   }
 
   /**
@@ -462,32 +475,25 @@ export class RateLimitManager {
    * レートリミット時にDiscordステータスを更新する
    */
   private async updateDiscordStatusForRateLimit(
-    timestamp: number,
+    _timestamp: number,
   ): Promise<void> {
     if (!this.discordClient) {
       return;
     }
 
     try {
-      const resumeTime = new Date(
-        timestamp * 1000 + RATE_LIMIT.AUTO_RESUME_DELAY_MS,
-      );
-      const resumeTimeStr = resumeTime.toLocaleString("ja-JP", {
-        timeZone: "Asia/Tokyo",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
+      const rateLimitStatus = await this.rateLimitStatusSource.getStatusText();
 
       await this.discordClient.user?.setPresence({
         activities: [{
-          name: `制限中 - ${resumeTimeStr}頃復旧予定`,
+          name: rateLimitStatus,
           type: ActivityType.Watching,
         }],
         status: PresenceUpdateStatus.DoNotDisturb,
       });
 
       this.logVerbose("Discord ステータスを制限中に更新", {
-        resumeTime: resumeTimeStr,
+        rateLimitStatus,
       });
     } catch (error) {
       console.error("Discord ステータス更新に失敗しました:", error);
@@ -503,16 +509,18 @@ export class RateLimitManager {
     }
 
     try {
-      const tokenStatus = this.tokenUsageTracker.getStatusString();
+      const rateLimitStatus = await this.rateLimitStatusSource.getStatusText();
       await this.discordClient.user?.setPresence({
         activities: [{
-          name: `${tokenStatus}`,
+          name: rateLimitStatus,
           type: ActivityType.Playing,
         }],
         status: PresenceUpdateStatus.Online,
       });
 
-      this.logVerbose("Discord ステータスを通常に復旧（トークン使用量付き）");
+      this.logVerbose("Discord ステータスを通常に復旧（Codexレート制限表示）", {
+        rateLimitStatus,
+      });
     } catch (error) {
       console.error("Discord ステータス復旧に失敗しました:", error);
     }
@@ -547,17 +555,17 @@ export class RateLimitManager {
     }
 
     try {
-      const tokenStatus = this.tokenUsageTracker.getStatusString();
+      const rateLimitStatus = await this.rateLimitStatusSource.getStatusText();
       await this.discordClient.user?.setPresence({
         activities: [{
-          name: `${tokenStatus}`,
+          name: rateLimitStatus,
           type: ActivityType.Playing,
         }],
         status: PresenceUpdateStatus.Online,
       });
 
-      this.logVerbose("Discord ステータスを更新（トークン使用量付き）", {
-        tokenStatus,
+      this.logVerbose("Discord ステータスを更新（Codexレート制限表示）", {
+        rateLimitStatus,
       });
     } catch (error) {
       console.error("Discord ステータス更新に失敗しました:", error);

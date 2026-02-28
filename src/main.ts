@@ -222,14 +222,14 @@ client.once(Events.ClientReady, async (readyClient) => {
   // 初期プレゼンス設定をトークン使用量付きで行う
   await admin.updateDiscordStatusWithTokenUsage();
 
-  // 定期的なステータス更新を設定（10分ごと）
+  // 定期的なステータス更新を設定（5分ごと）
   setInterval(async () => {
     try {
       await admin.updateDiscordStatusWithTokenUsage();
     } catch (error) {
       console.error("定期ステータス更新エラー:", error);
     }
-  }, 10 * 60 * 1000); // 10分ごと
+  }, 5 * 60 * 1000); // 5分ごと
 
   // 自動再開コールバックを設定
   admin.setAutoResumeCallback(async (threadId: string, message: string) => {

@@ -1,6 +1,7 @@
 import { assert, assertEquals, assertExists } from "std/assert/mod.ts";
 import { RateLimitManager } from "./rate-limit-manager.ts";
 import { WorkspaceManager } from "../workspace/workspace.ts";
+import type { Client } from "discord.js";
 
 Deno.test("RateLimitManager - レートリミット情報の保存", async () => {
   const tempDir = await Deno.makeTempDir();
@@ -150,4 +151,42 @@ Deno.test("RateLimitManager - レートリミットメッセージの作成", ()
       "この時間までに送信されたメッセージは、制限解除後に自動的に処理されます",
     ),
   );
+});
+
+Deno.test("RateLimitManager - Discordステータス表示はCodexレート制限の文字列を使う", async () => {
+  const tempDir = await Deno.makeTempDir();
+
+  try {
+    const workspaceManager = new WorkspaceManager(tempDir);
+    await workspaceManager.initialize();
+
+    const rateLimitManager = new RateLimitManager(workspaceManager);
+    const presenceUpdates: unknown[] = [];
+
+    rateLimitManager.setRateLimitStatusSource({
+      getStatusText: async () => "5h残り15.3%(12:34) 1w残り78.0%(02/28 15:06)",
+    });
+
+    rateLimitManager.setDiscordClient({
+      user: {
+        setPresence: async (presence: unknown) => {
+          presenceUpdates.push(presence);
+          return null;
+        },
+      },
+    } as unknown as Client);
+
+    await rateLimitManager.updateDiscordStatusWithTokenUsage();
+
+    assertEquals(presenceUpdates.length, 1);
+    const [firstPresence] = presenceUpdates as [{
+      activities: Array<{ name: string }>;
+    }];
+    assertEquals(
+      firstPresence.activities[0].name,
+      "5h残り15.3%(12:34) 1w残り78.0%(02/28 15:06)",
+    );
+  } finally {
+    await Deno.remove(tempDir, { recursive: true });
+  }
 });
