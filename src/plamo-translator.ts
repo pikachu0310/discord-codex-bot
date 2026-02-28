@@ -125,6 +125,7 @@ Translate only the user's message. Do not add explanations or additional context
           "Content-Type": "application/json",
         },
         body: JSON.stringify(request),
+        signal: AbortSignal.timeout(PLAMO_TRANSLATOR.TIMEOUT_MS),
       });
 
       if (!response.ok) {

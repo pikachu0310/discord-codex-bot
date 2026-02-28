@@ -5,6 +5,7 @@ import {
   recordDangerouslySkipPermissionsUnsupportedForTests,
   recordExecJsonUnsupportedForTests,
   recordSearchFlagUnsupportedForTests,
+  recordVerboseFlagSupportedForTests,
   recordVerboseFlagUnsupportedForTests,
   resetCodexCliCapabilityCacheForTests,
 } from "./codex-cli-capabilities.ts";
@@ -55,6 +56,7 @@ Deno.test("WorkerConfiguration - buildCodexArgs - 基本", () => {
 
 Deno.test("WorkerConfiguration - buildCodexArgs - verboseモード", () => {
   resetCodexCliCapabilityCacheForTests();
+  recordVerboseFlagSupportedForTests();
   const config = new WorkerConfiguration(true);
   const args = config.buildCodexArgs("テストプロンプト");
 
@@ -82,11 +84,16 @@ Deno.test(
   () => {
     try {
       resetCodexCliCapabilityCacheForTests();
+      recordDangerouslyBypassUnsupportedForTests();
       recordDangerouslySkipPermissionsUnsupportedForTests();
       const config = new WorkerConfiguration();
       const args = config.buildCodexArgs("テストプロンプト");
 
-      assertEquals(args.includes("--dangerously-bypass-approvals-and-sandbox"), false);
+      assertEquals(
+        args.includes("--dangerously-bypass-approvals-and-sandbox"),
+        false,
+      );
+      assertEquals(args.includes("--dangerously-skip-permissions"), false);
     } finally {
       resetCodexCliCapabilityCacheForTests();
     }

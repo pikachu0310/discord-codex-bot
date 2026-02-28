@@ -1,12 +1,12 @@
 import { CODEX_CLI } from "../constants.ts";
 import {
+  shouldUseDangerouslySkipPermissionsFlag,
+  shouldUseVerboseFlag,
+  supportsDangerouslyBypassFlag,
   supportsExecColorFlag,
   supportsExecJsonMode,
-  supportsDangerouslyBypassFlag,
-  supportsSearchFlag,
   supportsLegacyOutputFormatFlag,
-  shouldUseVerboseFlag,
-  shouldUseDangerouslySkipPermissionsFlag,
+  supportsSearchFlag,
 } from "./codex-cli-capabilities.ts";
 
 /**
@@ -115,7 +115,8 @@ export class WorkerConfiguration {
   disableDangerouslyBypassFlag(): void {
     this.useDangerouslyBypassFlag = false;
     if (this.dangerouslySkipPermissions) {
-      this.useDangerouslySkipPermissionsFlag = shouldUseDangerouslySkipPermissionsFlag();
+      this.useDangerouslySkipPermissionsFlag =
+        shouldUseDangerouslySkipPermissionsFlag();
     }
   }
 
@@ -130,7 +131,8 @@ export class WorkerConfiguration {
       if (this.useDangerouslyBypassFlag) {
         this.useDangerouslySkipPermissionsFlag = false;
       } else {
-        this.useDangerouslySkipPermissionsFlag = shouldUseDangerouslySkipPermissionsFlag();
+        this.useDangerouslySkipPermissionsFlag =
+          shouldUseDangerouslySkipPermissionsFlag();
       }
     } else {
       this.useDangerouslyBypassFlag = false;
@@ -229,7 +231,9 @@ export class WorkerConfiguration {
       args.push("--continue");
     }
 
-    if (this.dangerouslySkipPermissions && this.useDangerouslySkipPermissionsFlag) {
+    if (
+      this.dangerouslySkipPermissions && this.useDangerouslySkipPermissionsFlag
+    ) {
       args.push("--dangerously-skip-permissions");
     }
 

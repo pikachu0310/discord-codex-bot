@@ -226,7 +226,9 @@ export function shouldUseDangerouslySkipPermissionsFlag(): boolean {
   }
 
   const execHelp = getCodexExecHelpText();
-  if (execHelp !== null && execHelp.includes("--dangerously-skip-permissions")) {
+  if (
+    execHelp !== null && execHelp.includes("--dangerously-skip-permissions")
+  ) {
     cachedDangerouslySkipPermissionsSupport = true;
     return true;
   }
@@ -262,6 +264,10 @@ export function recordExecJsonUnsupportedForTests(): void {
   cachedExecJsonSupport = false;
 }
 
+export function recordExecJsonSupportedForTests(): void {
+  cachedExecJsonSupport = true;
+}
+
 export function recordExecColorUnsupportedForTests(): void {
   cachedExecColorSupport = false;
 }
@@ -274,14 +280,30 @@ export function recordDangerouslyBypassUnsupportedForTests(): void {
   cachedDangerouslyBypassSupport = false;
 }
 
+export function recordDangerouslyBypassSupportedForTests(): void {
+  cachedDangerouslyBypassSupport = true;
+}
+
 export function recordVerboseFlagUnsupportedForTests(): void {
   cachedVerboseSupport = false;
+}
+
+export function recordVerboseFlagSupportedForTests(): void {
+  cachedVerboseSupport = true;
 }
 
 export function recordDangerouslySkipPermissionsUnsupportedForTests(): void {
   cachedDangerouslySkipPermissionsSupport = false;
 }
 
+export function recordDangerouslySkipPermissionsSupportedForTests(): void {
+  cachedDangerouslySkipPermissionsSupport = true;
+}
+
 export function recordSearchFlagUnsupportedForTests(): void {
   cachedSearchFlagSupport = false;
+}
+
+export function recordLegacyOutputFormatSupportedForTests(): void {
+  cachedOutputFormatSupport = true;
 }

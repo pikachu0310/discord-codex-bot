@@ -3,10 +3,13 @@ import { describe, it } from "https://deno.land/std@0.214.0/testing/bdd.ts";
 import { Worker } from "./worker/worker.ts";
 import { CodexCommandExecutor } from "./worker/codex-executor.ts";
 import {
+  recordDangerouslyBypassSupportedForTests,
   recordDangerouslyBypassUnsupportedForTests,
+  recordDangerouslySkipPermissionsSupportedForTests,
+  recordExecJsonSupportedForTests,
   recordExecJsonUnsupportedForTests,
-  recordVerboseFlagUnsupportedForTests,
-  recordDangerouslySkipPermissionsUnsupportedForTests,
+  recordLegacyOutputFormatSupportedForTests,
+  recordVerboseFlagSupportedForTests,
   resetCodexCliCapabilityCacheForTests,
 } from "./worker/codex-cli-capabilities.ts";
 import { WorkerState, WorkspaceManager } from "./workspace/workspace.ts";
@@ -385,7 +388,8 @@ class MultipleFlagFallbackExecutor implements CodexCommandExecutor {
   }
 }
 
-class DangerouslySkipPermissionsFallbackExecutor implements CodexCommandExecutor {
+class DangerouslySkipPermissionsFallbackExecutor
+  implements CodexCommandExecutor {
   attempts = 0;
   argsHistory: string[][] = [];
 
@@ -545,7 +549,7 @@ class TtyFallbackExecutor implements CodexCommandExecutor {
   optionsHistory: Array<{ usePty?: boolean }> = [];
 
   async executeStreaming(
-    args: string[],
+    _args: string[],
     _cwd: string,
     onData: (data: Uint8Array) => void,
     _abortSignal?: AbortSignal,
@@ -624,8 +628,12 @@ describe("Worker --output-format フラグ自動再試行", () => {
 
       resetCodexCliCapabilityCacheForTests();
       recordExecJsonUnsupportedForTests();
+      recordLegacyOutputFormatSupportedForTests();
       const repoPath = await Deno.makeTempDir();
-      const gitInit = new Deno.Command("git", { args: ["init"], cwd: repoPath });
+      const gitInit = new Deno.Command("git", {
+        args: ["init"],
+        cwd: repoPath,
+      });
       await gitInit.output();
 
       try {
@@ -691,8 +699,13 @@ describe("Worker exec --json フラグ自動再試行", () => {
       const executor = new ExecJsonFallbackExecutor();
 
       resetCodexCliCapabilityCacheForTests();
+      recordExecJsonSupportedForTests();
+      recordLegacyOutputFormatSupportedForTests();
       const repoPath = await Deno.makeTempDir();
-      const gitInit = new Deno.Command("git", { args: ["init"], cwd: repoPath });
+      const gitInit = new Deno.Command("git", {
+        args: ["init"],
+        cwd: repoPath,
+      });
       await gitInit.output();
 
       try {
@@ -761,7 +774,10 @@ describe("Worker --search フラグ自動再試行", () => {
 
       resetCodexCliCapabilityCacheForTests();
       const repoPath = await Deno.makeTempDir();
-      const gitInit = new Deno.Command("git", { args: ["init"], cwd: repoPath });
+      const gitInit = new Deno.Command("git", {
+        args: ["init"],
+        cwd: repoPath,
+      });
       await gitInit.output();
 
       try {
@@ -829,7 +845,10 @@ describe("Worker --color フラグ自動再試行", () => {
 
       resetCodexCliCapabilityCacheForTests();
       const repoPath = await Deno.makeTempDir();
-      const gitInit = new Deno.Command("git", { args: ["init"], cwd: repoPath });
+      const gitInit = new Deno.Command("git", {
+        args: ["init"],
+        cwd: repoPath,
+      });
       await gitInit.output();
 
       try {
@@ -896,8 +915,12 @@ describe("Worker --verbose フラグ自動再試行", () => {
       const executor = new VerboseFallbackExecutor();
 
       resetCodexCliCapabilityCacheForTests();
+      recordVerboseFlagSupportedForTests();
       const repoPath = await Deno.makeTempDir();
-      const gitInit = new Deno.Command("git", { args: ["init"], cwd: repoPath });
+      const gitInit = new Deno.Command("git", {
+        args: ["init"],
+        cwd: repoPath,
+      });
       await gitInit.output();
 
       try {
@@ -966,79 +989,12 @@ describe("Worker --dangerously-skip-permissions フラグ自動再試行", () =>
 
         resetCodexCliCapabilityCacheForTests();
         recordDangerouslyBypassUnsupportedForTests();
+        recordDangerouslySkipPermissionsSupportedForTests();
         const repoPath = await Deno.makeTempDir();
-        const gitInit = new Deno.Command("git", { args: ["init"], cwd: repoPath });
-        await gitInit.output();
-
-        try {
-          const state: WorkerState = {
-            workerName: "test-worker",
-            threadId: "thread-id",
-            devcontainerConfig: {
-              useDevcontainer: false,
-              useFallbackDevcontainer: false,
-              hasDevcontainerFile: false,
-              hasAnthropicsFeature: false,
-              isStarted: false,
-            },
-            status: "active",
-            createdAt: new Date().toISOString(),
-            lastActiveAt: new Date().toISOString(),
-          };
-
-          const worker = new Worker(
-            state,
-            workspaceManager,
-            executor,
-            true,
-          );
-
-          const repositoryResult = parseRepository("test/repo");
-          if (repositoryResult.isOk()) {
-            await worker.setRepository(repositoryResult.value, repoPath);
-          }
-
-          worker.setUseDevcontainer(false);
-          Object.defineProperty(worker, "codexExecutor", {
-            value: executor,
-            writable: true,
-            configurable: true,
-          });
-
-        const result = await worker.processMessage("テスト");
-        assertEquals(result.isOk(), true);
-        assertEquals(executor.attempts, 2);
-
-        const firstArgs = executor.argsHistory[0];
-        const secondArgs = executor.argsHistory[1];
-        assertEquals(firstArgs.includes("--dangerously-skip-permissions"), true);
-        assertEquals(secondArgs.includes("--dangerously-skip-permissions"), false);
-      } finally {
-        await Deno.remove(repoPath, { recursive: true });
-        resetCodexCliCapabilityCacheForTests();
-      }
-    } finally {
-      await Deno.remove(tempDir, { recursive: true });
-      resetCodexCliCapabilityCacheForTests();
-    }
-  },
-);
-});
-
-describe("Worker --dangerously-bypass フラグ自動再試行", () => {
-  it(
-    "Codex CLIが--dangerously-bypass-approvals-and-sandboxを拒否した場合に旧フラグへ切り替える",
-    async () => {
-      const tempDir = await Deno.makeTempDir();
-      try {
-        const workspaceManager = new WorkspaceManager(tempDir);
-        await workspaceManager.initialize();
-
-        const executor = new DangerouslyBypassFallbackExecutor();
-
-        resetCodexCliCapabilityCacheForTests();
-        const repoPath = await Deno.makeTempDir();
-        const gitInit = new Deno.Command("git", { args: ["init"], cwd: repoPath });
+        const gitInit = new Deno.Command("git", {
+          args: ["init"],
+          cwd: repoPath,
+        });
         await gitInit.output();
 
         try {
@@ -1082,9 +1038,100 @@ describe("Worker --dangerously-bypass フラグ自動再試行", () => {
 
           const firstArgs = executor.argsHistory[0];
           const secondArgs = executor.argsHistory[1];
-          assertEquals(firstArgs.includes("--dangerously-bypass-approvals-and-sandbox"), true);
-          assertEquals(secondArgs.includes("--dangerously-bypass-approvals-and-sandbox"), false);
-          assertEquals(secondArgs.includes("--dangerously-skip-permissions"), true);
+          assertEquals(
+            firstArgs.includes("--dangerously-skip-permissions"),
+            true,
+          );
+          assertEquals(
+            secondArgs.includes("--dangerously-skip-permissions"),
+            false,
+          );
+        } finally {
+          await Deno.remove(repoPath, { recursive: true });
+          resetCodexCliCapabilityCacheForTests();
+        }
+      } finally {
+        await Deno.remove(tempDir, { recursive: true });
+        resetCodexCliCapabilityCacheForTests();
+      }
+    },
+  );
+});
+
+describe("Worker --dangerously-bypass フラグ自動再試行", () => {
+  it(
+    "Codex CLIが--dangerously-bypass-approvals-and-sandboxを拒否した場合に旧フラグへ切り替える",
+    async () => {
+      const tempDir = await Deno.makeTempDir();
+      try {
+        const workspaceManager = new WorkspaceManager(tempDir);
+        await workspaceManager.initialize();
+
+        const executor = new DangerouslyBypassFallbackExecutor();
+
+        resetCodexCliCapabilityCacheForTests();
+        recordDangerouslyBypassSupportedForTests();
+        recordDangerouslySkipPermissionsSupportedForTests();
+        const repoPath = await Deno.makeTempDir();
+        const gitInit = new Deno.Command("git", {
+          args: ["init"],
+          cwd: repoPath,
+        });
+        await gitInit.output();
+
+        try {
+          const state: WorkerState = {
+            workerName: "test-worker",
+            threadId: "thread-id",
+            devcontainerConfig: {
+              useDevcontainer: false,
+              useFallbackDevcontainer: false,
+              hasDevcontainerFile: false,
+              hasAnthropicsFeature: false,
+              isStarted: false,
+            },
+            status: "active",
+            createdAt: new Date().toISOString(),
+            lastActiveAt: new Date().toISOString(),
+          };
+
+          const worker = new Worker(
+            state,
+            workspaceManager,
+            executor,
+            true,
+          );
+
+          const repositoryResult = parseRepository("test/repo");
+          if (repositoryResult.isOk()) {
+            await worker.setRepository(repositoryResult.value, repoPath);
+          }
+
+          worker.setUseDevcontainer(false);
+          Object.defineProperty(worker, "codexExecutor", {
+            value: executor,
+            writable: true,
+            configurable: true,
+          });
+
+          const result = await worker.processMessage("テスト");
+          assertEquals(result.isOk(), true);
+          assertEquals(executor.attempts, 2);
+
+          const firstArgs = executor.argsHistory[0];
+          const secondArgs = executor.argsHistory[1];
+          assertEquals(
+            firstArgs.includes("--dangerously-bypass-approvals-and-sandbox"),
+            true,
+          );
+          assertEquals(
+            secondArgs.includes("--dangerously-bypass-approvals-and-sandbox"),
+            false,
+          );
+          assertEquals(
+            secondArgs.includes("--dangerously-skip-permissions"),
+            true,
+          );
         } finally {
           await Deno.remove(repoPath, { recursive: true });
           resetCodexCliCapabilityCacheForTests();
@@ -1109,7 +1156,10 @@ describe("Worker Codex CLI TTYフォールバック", () => {
 
         resetCodexCliCapabilityCacheForTests();
         const repoPath = await Deno.makeTempDir();
-        const gitInit = new Deno.Command("git", { args: ["init"], cwd: repoPath });
+        const gitInit = new Deno.Command("git", {
+          args: ["init"],
+          cwd: repoPath,
+        });
         await gitInit.output();
 
         try {
@@ -1176,8 +1226,14 @@ describe("Worker Codex CLI互換フラグの多段再試行", () => {
         const executor = new MultipleFlagFallbackExecutor();
 
         resetCodexCliCapabilityCacheForTests();
+        recordLegacyOutputFormatSupportedForTests();
+        recordVerboseFlagSupportedForTests();
+        recordDangerouslySkipPermissionsSupportedForTests();
         const repoPath = await Deno.makeTempDir();
-        const gitInit = new Deno.Command("git", { args: ["init"], cwd: repoPath });
+        const gitInit = new Deno.Command("git", {
+          args: ["init"],
+          cwd: repoPath,
+        });
         await gitInit.output();
 
         try {
@@ -1231,16 +1287,28 @@ describe("Worker Codex CLI互換フラグの多段再試行", () => {
           assertEquals(secondArgs.includes("exec"), false);
           assertEquals(secondArgs.includes("--output-format"), true);
           assertEquals(secondArgs.includes("--verbose"), true);
-          assertEquals(secondArgs.includes("--dangerously-skip-permissions"), true);
+          assertEquals(
+            secondArgs.includes("--dangerously-skip-permissions"),
+            true,
+          );
 
           assertEquals(thirdArgs.includes("--output-format"), false);
           assertEquals(thirdArgs.includes("--verbose"), true);
-          assertEquals(thirdArgs.includes("--dangerously-skip-permissions"), true);
+          assertEquals(
+            thirdArgs.includes("--dangerously-skip-permissions"),
+            true,
+          );
 
           assertEquals(fourthArgs.includes("--verbose"), false);
-          assertEquals(fourthArgs.includes("--dangerously-skip-permissions"), true);
+          assertEquals(
+            fourthArgs.includes("--dangerously-skip-permissions"),
+            true,
+          );
 
-          assertEquals(fifthArgs.includes("--dangerously-skip-permissions"), false);
+          assertEquals(
+            fifthArgs.includes("--dangerously-skip-permissions"),
+            false,
+          );
         } finally {
           await Deno.remove(repoPath, { recursive: true });
         }
@@ -1252,7 +1320,6 @@ describe("Worker Codex CLI互換フラグの多段再試行", () => {
   );
 });
 
-
 describe("Worker exec JSON agent message handling", () => {
   it("Codex execイベントからエージェントの応答を取り出す", async () => {
     const tempDir = await Deno.makeTempDir();
@@ -1262,7 +1329,10 @@ describe("Worker exec JSON agent message handling", () => {
 
       const executor = new ExecJsonAgentMessageExecutor();
       const repoPath = await Deno.makeTempDir();
-      const gitInit = new Deno.Command("git", { args: ["init"], cwd: repoPath });
+      const gitInit = new Deno.Command("git", {
+        args: ["init"],
+        cwd: repoPath,
+      });
       await gitInit.output();
 
       try {
@@ -1294,6 +1364,11 @@ describe("Worker exec JSON agent message handling", () => {
         }
 
         worker.setUseDevcontainer(false);
+        Object.defineProperty(worker, "codexExecutor", {
+          value: executor,
+          writable: true,
+          configurable: true,
+        });
 
         const progressMessages: string[] = [];
         const result = await worker.processMessage(
@@ -1313,7 +1388,9 @@ describe("Worker exec JSON agent message handling", () => {
 
         assertEquals(
           progressMessages.some((message) =>
-            message.includes("ユーザーとして送ったメッセージはこれで2通目です。")
+            message.includes(
+              "ユーザーとして送ったメッセージはこれで2通目です。",
+            )
           ),
           true,
         );

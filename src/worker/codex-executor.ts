@@ -75,18 +75,20 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
       const commandEnv = env ? { ...Deno.env.toObject(), ...env } : undefined;
 
       const binary = options?.usePty ? "script" : "codex";
-      const commandArgs = options?.usePty
-        ? buildScriptCommandArgs(args)
-        : args;
+      const commandArgs = options?.usePty ? buildScriptCommandArgs(args) : args;
 
       if (this.verbose) {
         const timestamp = new Date().toISOString();
         console.log(
-          `[${timestamp}] [DefaultCodexCommandExecutor] 実行モード: ${options?.usePty ? "pty" : "standard"}`,
+          `[${timestamp}] [DefaultCodexCommandExecutor] 実行モード: ${
+            options?.usePty ? "pty" : "standard"
+          }`,
         );
         if (options?.usePty) {
           console.log(
-            `[${timestamp}] [DefaultCodexCommandExecutor] 擬似TTYコマンド引数: ${JSON.stringify(commandArgs)}`,
+            `[${timestamp}] [DefaultCodexCommandExecutor] 擬似TTYコマンド引数: ${
+              JSON.stringify(commandArgs)
+            }`,
           );
         }
       }
@@ -258,9 +260,7 @@ export class DevcontainerCodexExecutor implements CodexCommandExecutor {
       // VERBOSEモードで実行結果詳細ログ
       if (this.verbose) {
         console.log(
-          `[${
-            new Date().toISOString()
-          }] [DevcontainerCodexExecutor] 実行完了:`,
+          `[${new Date().toISOString()}] [DevcontainerCodexExecutor] 実行完了:`,
         );
         console.log(`  終了コード: ${code}`);
         console.log(`  stderr長: ${stderrOutput.length}バイト`);

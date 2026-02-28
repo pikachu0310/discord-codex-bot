@@ -239,6 +239,14 @@ export class MessageRouter {
       } else {
         // その他のエラーの場合
         switch (error.type) {
+          case "CODEX_CLI_REQUIRES_TTY":
+            return ok(
+              `Codex CLI の実行にTTYが必要です: ${error.stderr}`,
+            );
+          case "CODEX_CLI_UNSUPPORTED_OPTION":
+            return ok(
+              `Codex CLI が未対応オプション ${error.option} を拒否しました: ${error.stderr}`,
+            );
           case "CODEX_EXECUTION_FAILED":
           case "WORKSPACE_ERROR":
           case "STREAM_PROCESSING_ERROR":

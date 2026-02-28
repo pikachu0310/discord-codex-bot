@@ -410,6 +410,7 @@ export class CodexStreamProcessor {
     parsed: CodexExecJsonEvent,
   ): string | null {
     const candidates = [
+      (parsed.delta as { command_output?: unknown })?.command_output,
       parsed.command_output,
       (parsed.item as { command_output?: unknown })?.command_output,
     ];
