@@ -203,7 +203,7 @@ const commands = [
     .toJSON(),
   new SlashCommandBuilder()
     .setName("plan")
-    .setDescription("Codex Codeをプランモードに設定します")
+    .setDescription("Codex Codeのプランモードを切り替えます（read-only）")
     .toJSON(),
   new SlashCommandBuilder()
     .setName("close")
@@ -857,7 +857,16 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
       await interaction.deferReply();
 
       const threadId = interaction.channel.id;
-      const planResult = await admin.setPlanMode(threadId, true);
+      const workerResult = admin.getWorker(threadId);
+      if (workerResult.isErr()) {
+        await interaction.editReply(
+          "❌ プランモードの設定に失敗しました。このスレッドはアクティブではありません。",
+        );
+        return;
+      }
+
+      const nextPlanMode = !workerResult.value.isPlanMode();
+      const planResult = await admin.setPlanMode(threadId, nextPlanMode);
 
       if (planResult.isErr()) {
         const error = planResult.error;
@@ -873,9 +882,15 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
         return;
       }
 
-      await interaction.editReply(
-        "✅ プランモードを有効にしました。\n\n💡 今後の指示に対して、実装前に詳細な計画を立てて提案します。",
-      );
+      if (nextPlanMode) {
+        await interaction.editReply(
+          "✅ プランモードを有効にしました。\n\n💡 Codexのread-onlyサンドボックスで、まず計画立案を優先します。",
+        );
+      } else {
+        await interaction.editReply(
+          "✅ プランモードを無効にしました。\n\n💡 通常モード（編集可能）に戻りました。",
+        );
+      }
     } catch (error) {
       console.error("/planコマンドエラー:", error);
       try {

@@ -1,7 +1,6 @@
 import { assertEquals } from "https://deno.land/std@0.211.0/assert/mod.ts";
 import { WorkerConfiguration } from "./worker-configuration.ts";
 import {
-  recordDangerouslyBypassUnsupportedForTests,
   recordDangerouslySkipPermissionsUnsupportedForTests,
   recordExecJsonUnsupportedForTests,
   recordSearchFlagUnsupportedForTests,
@@ -62,6 +61,47 @@ Deno.test("WorkerConfiguration - buildCodexArgs - verboseモード", () => {
 });
 
 Deno.test(
+  "WorkerConfiguration - buildCodexArgs - planモード時はread-onlyサンドボックスを使用",
+  () => {
+    resetCodexCliCapabilityCacheForTests();
+    const config = new WorkerConfiguration();
+    const args = config.buildCodexArgs("テストプロンプト", undefined, {
+      planMode: true,
+    });
+
+    const sandboxIndex = args.indexOf("--sandbox");
+    assertEquals(sandboxIndex !== -1, true);
+    assertEquals(args[sandboxIndex + 1], "read-only");
+    assertEquals(
+      args.includes("--dangerously-bypass-approvals-and-sandbox"),
+      false,
+    );
+    assertEquals(args.includes("--dangerously-skip-permissions"), false);
+  },
+);
+
+Deno.test(
+  "WorkerConfiguration - buildCodexArgs - 旧CLIのplanモードでも危険フラグを付与しない",
+  () => {
+    try {
+      resetCodexCliCapabilityCacheForTests();
+      recordExecJsonUnsupportedForTests();
+      const config = new WorkerConfiguration();
+      const args = config.buildCodexArgs("テストプロンプト", undefined, {
+        planMode: true,
+      });
+
+      const sandboxIndex = args.indexOf("--sandbox");
+      assertEquals(sandboxIndex !== -1, true);
+      assertEquals(args[sandboxIndex + 1], "read-only");
+      assertEquals(args.includes("--dangerously-skip-permissions"), false);
+    } finally {
+      resetCodexCliCapabilityCacheForTests();
+    }
+  },
+);
+
+Deno.test(
   "WorkerConfiguration - Codex CLIが--verboseをサポートしない場合にフラグを付与しない",
   () => {
     try {
@@ -86,7 +126,10 @@ Deno.test(
       const config = new WorkerConfiguration();
       const args = config.buildCodexArgs("テストプロンプト");
 
-      assertEquals(args.includes("--dangerously-bypass-approvals-and-sandbox"), false);
+      assertEquals(
+        args.includes("--dangerously-bypass-approvals-and-sandbox"),
+        false,
+      );
     } finally {
       resetCodexCliCapabilityCacheForTests();
     }

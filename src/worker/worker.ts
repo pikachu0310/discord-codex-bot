@@ -395,56 +395,11 @@ export class Worker implements IWorker {
   }
 
   private buildExecutionArgs(prompt: string): string[] {
-    const args = this.configuration.buildCodexArgs(
+    return this.configuration.buildCodexArgs(
       prompt,
       this.state.sessionId,
+      { planMode: this.isPlanMode() },
     );
-
-    if (!this.isPlanMode()) {
-      return args;
-    }
-
-    if (args.length === 0) {
-      return args;
-    }
-
-    const promptArg = args[args.length - 1];
-    const modifiedArgs = args.slice(0, -1);
-
-    const planModePrompt = `
-You are in plan mode. When responding to user requests, you should:
-1. Think about the implementation steps first
-2. Present a clear, structured plan to the user
-3. Use the exit_plan_mode tool when you've finished planning and are ready to start implementation
-4. Only use the exit_plan_mode tool for tasks that require code implementation
-
-For research, analysis, or informational tasks, do not use the exit_plan_mode tool.
-`;
-
-    const systemPromptIndex = modifiedArgs.findIndex((arg) =>
-      arg === "--append-system-prompt" ||
-      arg.startsWith("--append-system-prompt=")
-    );
-
-    if (systemPromptIndex !== -1) {
-      const current = modifiedArgs[systemPromptIndex];
-      if (
-        current === "--append-system-prompt" &&
-        systemPromptIndex < modifiedArgs.length - 1
-      ) {
-        modifiedArgs[systemPromptIndex + 1] += planModePrompt;
-      } else if (current.startsWith("--append-system-prompt=")) {
-        modifiedArgs[systemPromptIndex] = `${current}${planModePrompt}`;
-      } else {
-        modifiedArgs.push("--append-system-prompt", planModePrompt);
-      }
-    } else {
-      modifiedArgs.push("--append-system-prompt", planModePrompt);
-    }
-
-    this.logVerbose("Planモード用システムプロンプト追加");
-    modifiedArgs.push(promptArg);
-    return modifiedArgs;
   }
 
   private async executeCodexStreaming(

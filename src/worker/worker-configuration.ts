@@ -1,12 +1,12 @@
 import { CODEX_CLI } from "../constants.ts";
 import {
+  shouldUseDangerouslySkipPermissionsFlag,
+  shouldUseVerboseFlag,
+  supportsDangerouslyBypassFlag,
   supportsExecColorFlag,
   supportsExecJsonMode,
-  supportsDangerouslyBypassFlag,
-  supportsSearchFlag,
   supportsLegacyOutputFormatFlag,
-  shouldUseVerboseFlag,
-  shouldUseDangerouslySkipPermissionsFlag,
+  supportsSearchFlag,
 } from "./codex-cli-capabilities.ts";
 
 /**
@@ -115,7 +115,8 @@ export class WorkerConfiguration {
   disableDangerouslyBypassFlag(): void {
     this.useDangerouslyBypassFlag = false;
     if (this.dangerouslySkipPermissions) {
-      this.useDangerouslySkipPermissionsFlag = shouldUseDangerouslySkipPermissionsFlag();
+      this.useDangerouslySkipPermissionsFlag =
+        shouldUseDangerouslySkipPermissionsFlag();
     }
   }
 
@@ -130,7 +131,8 @@ export class WorkerConfiguration {
       if (this.useDangerouslyBypassFlag) {
         this.useDangerouslySkipPermissionsFlag = false;
       } else {
-        this.useDangerouslySkipPermissionsFlag = shouldUseDangerouslySkipPermissionsFlag();
+        this.useDangerouslySkipPermissionsFlag =
+          shouldUseDangerouslySkipPermissionsFlag();
       }
     } else {
       this.useDangerouslyBypassFlag = false;
@@ -178,8 +180,13 @@ export class WorkerConfiguration {
   /**
    * Codexコマンドの引数を構築
    */
-  buildCodexArgs(prompt: string, sessionId?: string | null): string[] {
+  buildCodexArgs(
+    prompt: string,
+    sessionId?: string | null,
+    options?: { planMode?: boolean },
+  ): string[] {
     const args: string[] = [];
+    const planMode = options?.planMode || false;
 
     if (this.useSearchFlag) {
       args.push("--search");
@@ -196,7 +203,9 @@ export class WorkerConfiguration {
         args.push("--verbose");
       }
 
-      if (this.dangerouslySkipPermissions) {
+      if (planMode) {
+        args.push("--sandbox", "read-only");
+      } else if (this.dangerouslySkipPermissions) {
         if (this.useDangerouslyBypassFlag) {
           args.push("--dangerously-bypass-approvals-and-sandbox");
         } else if (this.useDangerouslySkipPermissionsFlag) {
@@ -225,11 +234,19 @@ export class WorkerConfiguration {
       args.push("--verbose");
     }
 
+    if (planMode) {
+      args.push("--sandbox", "read-only");
+    }
+
     if (sessionId) {
       args.push("--continue");
     }
 
-    if (this.dangerouslySkipPermissions && this.useDangerouslySkipPermissionsFlag) {
+    if (
+      !planMode &&
+      this.dangerouslySkipPermissions &&
+      this.useDangerouslySkipPermissionsFlag
+    ) {
       args.push("--dangerously-skip-permissions");
     }
 
