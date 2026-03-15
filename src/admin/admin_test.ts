@@ -1,6 +1,7 @@
 import { assert, assertEquals, assertExists } from "std/assert/mod.ts";
 import { Admin } from "./admin.ts";
 import { AdminState, WorkspaceManager } from "../workspace/workspace.ts";
+import { parseRepository } from "../git-utils.ts";
 
 Deno.test("Admin - 基本的な初期化とWorker作成", async () => {
   const tempDir = await Deno.makeTempDir();
@@ -76,6 +77,78 @@ Deno.test("Admin - スレッドの終了処理", async () => {
     assertExists(threadInfo);
     assertEquals(threadInfo?.status, "archived");
   } finally {
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});
+
+Deno.test("Admin - close後にスレッドを再オープンできる", async () => {
+  const tempDir = await Deno.makeTempDir();
+  const repositoryDir = await Deno.makeTempDir();
+  try {
+    const workspaceManager = new WorkspaceManager(tempDir);
+    await workspaceManager.initialize();
+
+    const gitInit = new Deno.Command("git", {
+      args: ["init"],
+      cwd: repositoryDir,
+    });
+    const gitInitOutput = await gitInit.output();
+    assertEquals(gitInitOutput.code, 0);
+
+    const adminState: AdminState = {
+      activeThreadIds: [],
+      lastUpdated: new Date().toISOString(),
+    };
+
+    const admin = new Admin(adminState, workspaceManager);
+    const threadId = "123456789012345678";
+
+    const createResult = await admin.createWorker(threadId);
+    assert(createResult.isOk());
+
+    const repositoryResult = parseRepository("test/reopen-repo");
+    assert(repositoryResult.isOk());
+    const setRepoResult = await createResult.value.setRepository(
+      repositoryResult.value,
+      repositoryDir,
+    );
+    assert(setRepoResult.isOk());
+
+    const setPlanResult = await admin.setPlanMode(threadId, true);
+    assert(setPlanResult.isOk());
+
+    const closeResult = await admin.closeThread(threadId);
+    assert(closeResult.isOk());
+
+    const closedWorkerResult = admin.getWorker(threadId);
+    assert(closedWorkerResult.isErr());
+    assertEquals(closedWorkerResult.error.type, "WORKER_NOT_FOUND");
+
+    const reopenResult = await admin.reopenThread(threadId);
+    assert(reopenResult.isOk());
+
+    const reopenedWorkerResult = admin.getWorker(threadId);
+    assert(reopenedWorkerResult.isOk());
+    assertEquals(typeof reopenedWorkerResult.value.isPlanMode(), "boolean");
+
+    const threadInfo = await workspaceManager.loadThreadInfo(threadId);
+    assertExists(threadInfo);
+    assertEquals(threadInfo?.status, "active");
+    assertEquals(threadInfo?.repositoryFullName, "test/reopen-repo");
+    assertEquals(threadInfo?.repositoryLocalPath, repositoryDir);
+
+    const workerState = await workspaceManager.loadWorkerState(threadId);
+    assertExists(workerState);
+    assertEquals(workerState?.status, "active");
+    assertEquals(workerState?.repository?.fullName, "test/reopen-repo");
+    assertExists(workerState?.worktreePath);
+
+    if (workerState?.worktreePath) {
+      const stat = await Deno.stat(workerState.worktreePath);
+      assertEquals(stat.isDirectory, true);
+    }
+  } finally {
+    await Deno.remove(repositoryDir, { recursive: true });
     await Deno.remove(tempDir, { recursive: true });
   }
 });

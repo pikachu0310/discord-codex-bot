@@ -13,6 +13,7 @@ import { MessageRouter } from "./message-router.ts";
 import { err, ok, Result } from "neverthrow";
 import type { Client } from "discord.js";
 import type { TokenUsageTrackerOptions } from "../token-usage-tracker.ts";
+import { parseRepository } from "../git-utils.ts";
 
 export class Admin implements IAdmin {
   private state: AdminState;
@@ -882,6 +883,137 @@ export class Admin implements IAdmin {
     }
 
     this.logVerbose("スレッドクローズ完了", { threadId });
+    return ok(undefined);
+  }
+
+  /**
+   * クローズ済みスレッドを再オープンする
+   */
+  async reopenThread(
+    threadId: string,
+  ): Promise<Result<void, AdminError>> {
+    this.logVerbose("スレッド再オープン開始", { threadId });
+
+    const existingWorker = this.workerManager.getWorker(threadId);
+    if (existingWorker) {
+      this.logVerbose("既にアクティブなWorkerが存在", { threadId });
+      return ok(undefined);
+    }
+
+    const archivedWorkerState = await this.workspaceManager.loadWorkerState(
+      threadId,
+    );
+    if (!archivedWorkerState) {
+      return err({
+        type: "WORKSPACE_ERROR",
+        operation: "load_worker_state",
+        error: "Worker状態が見つかりません",
+      });
+    }
+
+    const repository = archivedWorkerState.repository;
+    const repositoryLocalPath = archivedWorkerState.repositoryLocalPath;
+    if (!repository || !repositoryLocalPath) {
+      return err({
+        type: "WORKSPACE_ERROR",
+        operation: "restore_repository",
+        error: "リポジトリ情報が不足しているため再オープンできません",
+      });
+    }
+
+    try {
+      const stat = await Deno.stat(repositoryLocalPath);
+      if (!stat.isDirectory) {
+        return err({
+          type: "WORKSPACE_ERROR",
+          operation: "restore_repository",
+          error:
+            `リポジトリパスがディレクトリではありません: ${repositoryLocalPath}`,
+        });
+      }
+    } catch (error) {
+      if (error instanceof Deno.errors.NotFound) {
+        return err({
+          type: "WORKSPACE_ERROR",
+          operation: "restore_repository",
+          error: `リポジトリパスが存在しません: ${repositoryLocalPath}`,
+        });
+      }
+      return err({
+        type: "WORKSPACE_ERROR",
+        operation: "restore_repository",
+        error: (error as Error).message,
+      });
+    }
+
+    const parsedRepository = parseRepository(repository.fullName);
+    if (parsedRepository.isErr()) {
+      return err({
+        type: "WORKSPACE_ERROR",
+        operation: "parse_repository",
+        error: parsedRepository.error.type,
+      });
+    }
+
+    const createResult = await this.createWorker(threadId);
+    if (createResult.isErr()) {
+      return err(createResult.error);
+    }
+
+    const worker = createResult.value;
+    const setRepoResult = await worker.setRepository(
+      parsedRepository.value,
+      repositoryLocalPath,
+    );
+    if (setRepoResult.isErr()) {
+      return err({
+        type: "WORKSPACE_ERROR",
+        operation: "restore_repository",
+        error: setRepoResult.error.type,
+      });
+    }
+
+    worker.setPlanMode(archivedWorkerState.isPlanMode || false);
+    worker.setUseDevcontainer(
+      archivedWorkerState.devcontainerConfig.useDevcontainer,
+    );
+    worker.setUseFallbackDevcontainer(
+      archivedWorkerState.devcontainerConfig.useFallbackDevcontainer,
+    );
+
+    const saveResult = await worker.save();
+    if (saveResult.isErr()) {
+      return err({
+        type: "WORKSPACE_ERROR",
+        operation: "save_worker_state",
+        error: saveResult.error.type,
+      });
+    }
+
+    const now = new Date().toISOString();
+    const restoredWorkerState = await this.workspaceManager.loadWorkerState(
+      threadId,
+    );
+    const threadInfo = await this.workspaceManager.loadThreadInfo(threadId);
+    if (threadInfo) {
+      threadInfo.status = "active";
+      threadInfo.lastActiveAt = now;
+      threadInfo.repositoryFullName = repository.fullName;
+      threadInfo.repositoryLocalPath = repositoryLocalPath;
+      threadInfo.worktreePath = restoredWorkerState?.worktreePath || null;
+      await this.workspaceManager.saveThreadInfo(threadInfo);
+    }
+
+    await this.addActiveThread(threadId);
+    await this.logAuditEntry(threadId, "thread_reopened", {
+      repository: repository.fullName,
+      workerName: worker.getName(),
+    });
+
+    this.logVerbose("スレッド再オープン完了", {
+      threadId,
+      repositoryFullName: repository.fullName,
+    });
     return ok(undefined);
   }
 

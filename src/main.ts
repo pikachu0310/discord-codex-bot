@@ -206,6 +206,11 @@ const commands = [
     .setDescription("Codex Codeのプランモードを切り替えます（read-only）")
     .toJSON(),
   new SlashCommandBuilder()
+    .setName("open")
+    .setDescription("クローズ済みスレッドを再オープンします")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageThreads)
+    .toJSON(),
+  new SlashCommandBuilder()
     .setName("close")
     .setDescription("現在のスレッドをクローズします")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageThreads)
@@ -941,6 +946,59 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
       });
     } catch (error) {
       console.error("/closeコマンドエラー:", error);
+      try {
+        await interaction.editReply("エラーが発生しました。");
+      } catch {
+        await interaction.reply("エラーが発生しました。");
+      }
+    }
+  } else if (commandName === "open") {
+    try {
+      // スレッド内でのみ使用可能
+      if (!interaction.channel || !interaction.channel.isThread()) {
+        await interaction.reply("このコマンドはスレッド内でのみ使用できます。");
+        return;
+      }
+
+      await interaction.deferReply();
+
+      const thread = interaction.channel;
+      const threadId = thread.id;
+      const currentWorkerResult = admin.getWorker(threadId);
+
+      if (currentWorkerResult.isOk()) {
+        await interaction.editReply(
+          "✅ このスレッドは既にオープン済みです。",
+        );
+        return;
+      }
+
+      if (thread.archived) {
+        try {
+          await thread.setArchived(false);
+        } catch (error) {
+          await interaction.editReply(
+            `❌ スレッドのアーカイブ解除に失敗しました: ${
+              (error as Error).message
+            }`,
+          );
+          return;
+        }
+      }
+
+      const reopenResult = await admin.reopenThread(threadId);
+      if (reopenResult.isErr()) {
+        await interaction.editReply(
+          `❌ スレッドの再オープンに失敗しました: ${reopenResult.error.type}`,
+        );
+        return;
+      }
+
+      await interaction.editReply(
+        "✅ スレッドを再オープンしました。\n\n💡 そのまま続けて指示を送信できます。",
+      );
+    } catch (error) {
+      console.error("/openコマンドエラー:", error);
       try {
         await interaction.editReply("エラーが発生しました。");
       } catch {
