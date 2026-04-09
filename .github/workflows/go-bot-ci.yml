@@ -1,0 +1,45 @@
+name: Go Bot CI
+
+on:
+  push:
+    paths:
+      - "go-discord-bot/**"
+      - ".github/workflows/go-bot-ci.yml"
+  pull_request:
+    paths:
+      - "go-discord-bot/**"
+      - ".github/workflows/go-bot-ci.yml"
+
+jobs:
+  test:
+    name: Go Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: go-discord-bot
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+
+      - name: Download modules
+        run: go mod tidy
+
+      - name: Format check
+        run: test -z "$(gofmt -s -l .)"
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.64
+          working-directory: go-discord-bot
+
+      - name: Test
+        run: go test ./... -race
