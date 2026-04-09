@@ -105,6 +105,17 @@ func (s *Service) StartRepoSession(threadID, repoSpec string) (*store.SessionSta
 	if err != nil {
 		return nil, err
 	}
+	existing, err := s.store.LoadSession(threadID)
+	if err != nil {
+		return nil, err
+	}
+	if existing != nil &&
+		existing.Status == store.SessionStatusActive &&
+		existing.Mode == store.SessionModeRepo &&
+		existing.Repository == repo.FullName {
+		return existing, nil
+	}
+
 	cachePath, _, err := s.workspaceManager.EnsureRepositoryCache(repo)
 	if err != nil {
 		return nil, err
@@ -184,21 +195,31 @@ func (s *Service) HandleUserMessage(
 		return "", err
 	}
 
-	if onProgress != nil {
-		onProgress("🤖 Codexが考えています...")
-	}
-
+	pending := make([]string, 0, 16)
 	lastSent := time.Time{}
-	sendProgress := func(msg string) {
-		if onProgress == nil {
+	flushProgress := func(now time.Time) {
+		if onProgress == nil || len(pending) == 0 {
 			return
 		}
+		onProgress(strings.Join(pending, "\n"))
+		pending = pending[:0]
+		lastSent = now
+	}
+	sendProgress := func(msg string) {
+		if onProgress == nil || strings.TrimSpace(msg) == "" {
+			return
+		}
+		pending = append(pending, msg)
 		now := time.Now()
+		if s.progressInterval <= 0 {
+			flushProgress(now)
+			return
+		}
 		if lastSent.IsZero() || now.Sub(lastSent) >= s.progressInterval {
-			onProgress(msg)
-			lastSent = now
+			flushProgress(now)
 		}
 	}
+	sendProgress("🤖 Codexが考えています...")
 
 	sessionKey := session.CodexSessionID
 	if sessionKey == "" {
@@ -215,6 +236,7 @@ func (s *Service) HandleUserMessage(
 			_ = s.store.AppendRawLog(sessionKey, runID, line)
 		},
 	)
+	flushProgress(time.Now())
 
 	ended := time.Now().UTC()
 	runState.EndedAt = ended

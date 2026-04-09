@@ -13,6 +13,7 @@
 - ファイルベース永続化（SQLiteなし）
 - 1スレッド=1セッション
 - 同一スレッド同時実行禁止
+- 進捗ログをデフォルトで可視化（実行コマンドはコードブロック、実行結果はツール結果として投稿）
 - Codex 実行コマンドを新方式に固定
   - `codex --search exec --json --color never --dangerously-bypass-approvals-and-sandbox ...`
 

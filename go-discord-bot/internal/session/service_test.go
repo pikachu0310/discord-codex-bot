@@ -3,6 +3,8 @@ package session
 import (
 	"context"
 	"errors"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,21 +14,37 @@ import (
 )
 
 type fakeRunner struct {
-	result codex.RunResult
-	err    error
-	delay  time.Duration
+	mu               sync.Mutex
+	result           codex.RunResult
+	err              error
+	delay            time.Duration
+	progressMessages []string
+	seenSessionIDs   []string
 }
 
-func (f fakeRunner) Run(
+func (f *fakeRunner) Run(
 	ctx context.Context,
 	_ string,
 	_ string,
-	_ string,
+	sessionID string,
 	onProgress func(string),
 	_ func(string),
 ) (codex.RunResult, error) {
+	f.mu.Lock()
+	f.seenSessionIDs = append(f.seenSessionIDs, sessionID)
+	progressMessages := append([]string{}, f.progressMessages...)
+	result := f.result
+	runErr := f.err
+	f.mu.Unlock()
+
 	if onProgress != nil {
-		onProgress("progress")
+		if len(progressMessages) == 0 {
+			onProgress("progress")
+		} else {
+			for _, msg := range progressMessages {
+				onProgress(msg)
+			}
+		}
 	}
 	if f.delay > 0 {
 		select {
@@ -35,7 +53,7 @@ func (f fakeRunner) Run(
 		case <-time.After(f.delay):
 		}
 	}
-	return f.result, f.err
+	return result, runErr
 }
 
 func TestStartChatAndStatus(t *testing.T) {
@@ -49,7 +67,7 @@ func TestStartChatAndStatus(t *testing.T) {
 		t.Fatalf("workspace init: %v", err)
 	}
 
-	svc := NewService(st, wm, fakeRunner{}, 1000, 10000, 0)
+	svc := NewService(st, wm, &fakeRunner{}, 1000, 10000, 0)
 	if _, err := svc.StartChatSession("thread-1"); err != nil {
 		t.Fatalf("start chat: %v", err)
 	}
@@ -85,16 +103,17 @@ func TestHandleUserMessageUpdatesSessionAndUsage(t *testing.T) {
 	wm := workspace.New(base)
 	_ = wm.Init()
 
+	runner := &fakeRunner{
+		result: codex.RunResult{
+			FinalText:  "done",
+			SessionID:  "sess-1",
+			TokenUsage: 120,
+		},
+	}
 	svc := NewService(
 		st,
 		wm,
-		fakeRunner{
-			result: codex.RunResult{
-				FinalText:  "done",
-				SessionID:  "sess-1",
-				TokenUsage: 120,
-			},
-		},
+		runner,
 		1000,
 		2000,
 		0,
@@ -139,7 +158,7 @@ func TestStopCancelsRunning(t *testing.T) {
 	svc := NewService(
 		st,
 		wm,
-		fakeRunner{
+		&fakeRunner{
 			delay: 500 * time.Millisecond,
 		},
 		1000,
@@ -168,5 +187,85 @@ func TestStopCancelsRunning(t *testing.T) {
 	}
 	if err := <-done; err != nil {
 		t.Fatalf("handle goroutine err: %v", err)
+	}
+}
+
+func TestHandleUserMessageUsesSameSessionForNextRun(t *testing.T) {
+	base := t.TempDir()
+	st := store.New(base)
+	_ = st.Init()
+	wm := workspace.New(base)
+	_ = wm.Init()
+
+	runner := &fakeRunner{
+		result: codex.RunResult{
+			FinalText: "first",
+			SessionID: "sess-shared",
+		},
+	}
+	svc := NewService(st, wm, runner, 1000, 1000, 0)
+	_, _ = svc.StartChatSession("thread-same-session")
+
+	if _, err := svc.HandleUserMessage(context.Background(), "thread-same-session", "1st", nil); err != nil {
+		t.Fatalf("first run err: %v", err)
+	}
+
+	runner.mu.Lock()
+	runner.result = codex.RunResult{FinalText: "second"}
+	runner.mu.Unlock()
+
+	if _, err := svc.HandleUserMessage(context.Background(), "thread-same-session", "2nd", nil); err != nil {
+		t.Fatalf("second run err: %v", err)
+	}
+
+	runner.mu.Lock()
+	defer runner.mu.Unlock()
+	if len(runner.seenSessionIDs) != 2 {
+		t.Fatalf("session id calls = %d, want 2", len(runner.seenSessionIDs))
+	}
+	if runner.seenSessionIDs[0] != "" {
+		t.Fatalf("first session id = %q, want empty", runner.seenSessionIDs[0])
+	}
+	if runner.seenSessionIDs[1] != "sess-shared" {
+		t.Fatalf("second session id = %q, want sess-shared", runner.seenSessionIDs[1])
+	}
+}
+
+func TestHandleUserMessageFlushesAllProgressLogs(t *testing.T) {
+	base := t.TempDir()
+	st := store.New(base)
+	_ = st.Init()
+	wm := workspace.New(base)
+	_ = wm.Init()
+
+	runner := &fakeRunner{
+		result: codex.RunResult{FinalText: "done"},
+		progressMessages: []string{
+			"log-1",
+			"log-2",
+			"log-3",
+		},
+	}
+	svc := NewService(st, wm, runner, 1000, 1000, 2*time.Second)
+	_, _ = svc.StartChatSession("thread-logs")
+
+	received := make([]string, 0, 4)
+	_, err := svc.HandleUserMessage(
+		context.Background(),
+		"thread-logs",
+		"hello",
+		func(msg string) {
+			received = append(received, msg)
+		},
+	)
+	if err != nil {
+		t.Fatalf("handle err: %v", err)
+	}
+
+	joined := strings.Join(received, "\n")
+	for _, want := range []string{"🤖 Codexが考えています...", "log-1", "log-2", "log-3"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("progress missing %q: %q", want, joined)
+		}
 	}
 }

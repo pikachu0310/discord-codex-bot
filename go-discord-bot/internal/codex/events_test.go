@@ -1,6 +1,9 @@
 package codex
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestBuildArgs(t *testing.T) {
 	args := BuildArgs("hello", "")
@@ -39,6 +42,33 @@ func TestParseEventLineNonJSON(t *testing.T) {
 	}
 }
 
+func TestParseEventLineCommandMetadata(t *testing.T) {
+	line := `{"type":"item.command_output.started","item":{"type":"command_output","command":["bash","-lc","ls -la"],"shell":"bash"},"session_id":"sess-123"}`
+	out := ParseEventLine(line)
+	if out.Progress == "" {
+		t.Fatal("expected command progress")
+	}
+	if !containsAll(out.Progress, []string{"💻 **Command", "```bash", "ls -la"}) {
+		t.Fatalf("unexpected progress: %q", out.Progress)
+	}
+}
+
+func TestParseEventLineCommandOutput(t *testing.T) {
+	line := `{"type":"item.command_output.delta","item":{"type":"command_output","is_error":false},"delta":{"command_output":{"stdout_delta":"Running tests..."}},"session_id":"sess-123"}`
+	out := ParseEventLine(line)
+	if !containsAll(out.Progress, []string{"✅ **ツール実行結果:**", "Running tests..."}) {
+		t.Fatalf("unexpected progress: %q", out.Progress)
+	}
+}
+
+func TestParseEventLineSessionFromText(t *testing.T) {
+	line := `codex --search exec --json --color never --dangerously-bypass-approvals-and-sandbox resume session-abc12345 prompt`
+	out := ParseEventLine(line)
+	if out.SessionID != "session-abc12345" {
+		t.Fatalf("session id = %q, want session-abc12345", out.SessionID)
+	}
+}
+
 func joinArgs(v []string) string {
 	out := ""
 	for i, p := range v {
@@ -48,4 +78,13 @@ func joinArgs(v []string) string {
 		out += p
 	}
 	return out
+}
+
+func containsAll(text string, parts []string) bool {
+	for _, p := range parts {
+		if !strings.Contains(text, p) {
+			return false
+		}
+	}
+	return true
 }
