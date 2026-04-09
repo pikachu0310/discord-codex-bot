@@ -177,8 +177,8 @@ codex --search exec --json --color never --dangerously-bypass-approvals-and-sand
 
 ## 6.4 保存
 
-- `token_usage_events` に `(timestamp_utc, tokens)` を保存
-- /status 実行時に SQL 集計して算出
+- `token_usage/usage.jsonl` に `(timestamp_utc, tokens)` を追記保存
+- `/status` 実行時に JSONL を読み、時間窓（5h/1w）で集計して算出
 
 ---
 
@@ -200,7 +200,7 @@ internal/store
 - `session`: セッション状態遷移と実行制御
 - `codex`: プロセス起動、stdout/stderr処理、停止
 - `workspace`: repo取得、作業ディレクトリ準備
-- `store`: SQLite CRUD
+- `store`: ファイルベース状態の読み書き
 
 ## 7.2 同時実行制約
 
@@ -210,31 +210,22 @@ internal/store
 
 ---
 
-## 8. データモデル（SQLite）
+## 8. データモデル（ファイルベース）
 
-## 8.1 tables
+## 8.1 保存ファイル
 
-- `sessions`
-  - `id`
-  - `thread_id` (unique)
+- `sessions/<thread_id>.json`
   - `mode` (`chat`/`repo`)
   - `repository` (nullable)
   - `workspace_path`
   - `codex_session_id` (nullable)
   - `status` (`active`/`closed`)
   - `created_at`, `updated_at`
-- `runs`
-  - `id`
-  - `session_id`
-  - `status` (`running`/`succeeded`/`failed`/`stopped`)
-  - `prompt`
-  - `exit_code` (nullable)
-  - `error_summary` (nullable)
-  - `started_at`, `ended_at`
-- `token_usage_events`
-  - `id`
-  - `timestamp_utc`
-  - `tokens`
+- `runs/<thread_id>.json`
+  - 現在 run の状態（`idle`/`running`/`stopped`）
+  - `last_run_id`, `started_at`, `ended_at`, `error_summary`
+- `token_usage/usage.jsonl`
+  - 1行1イベント: `timestamp_utc`, `tokens`
 
 ## 8.2 ログファイル
 
@@ -247,7 +238,7 @@ internal/store
 
 - 入力不正: 明確なメッセージ（例: `owner/repo 形式で指定してください`）
 - 実行失敗: `Codex実行に失敗しました: <要約>`
-- DB失敗: `内部エラーが発生しました。`
+- 状態保存失敗: `内部エラーが発生しました。`
 - すべての失敗を構造化ログへ記録
 
 ---
