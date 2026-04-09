@@ -20,6 +20,16 @@ type Config struct {
 }
 
 func Load() (Config, error) {
+	requiredEnv := []string{
+		"DISCORD_TOKEN",
+		"WORK_BASE_DIR",
+		"CODEX_LIMIT_5H_TOKENS",
+		"CODEX_LIMIT_1W_TOKENS",
+	}
+	if err := loadDotEnvIfNeeded(requiredEnv); err != nil {
+		return Config{}, err
+	}
+
 	token := os.Getenv("DISCORD_TOKEN")
 	if token == "" {
 		return Config{}, errors.New("DISCORD_TOKEN is required")

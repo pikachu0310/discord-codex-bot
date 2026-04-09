@@ -30,10 +30,14 @@
 - `CODEX_LIMIT_5H_TOKENS` (必須)
 - `CODEX_LIMIT_1W_TOKENS` (必須)
 
+起動時に必須環境変数のどれかが空の場合、カレントディレクトリの `.env` を自動で読み込みます。  
+テンプレートは `.env.example` を参照してください。
+
 ## 起動
 
 ```bash
 cd go-discord-bot
+cp .env.example .env
 go mod tidy
 go run ./cmd/bot
 ```
