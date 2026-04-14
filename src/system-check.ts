@@ -1,4 +1,4 @@
-import { err, ok, Result } from "npm:neverthrow@8.1.1";
+import { err, ok, Result } from "neverthrow";
 import { exec } from "./utils/exec.ts";
 
 // エラー型の定義
@@ -21,7 +21,6 @@ export type SystemCheckError = {
 export interface SystemRequirement {
   command: string;
   description: string;
-  required: boolean;
 }
 
 export interface CommandStatus {
@@ -41,25 +40,10 @@ const REQUIRED_COMMANDS: SystemRequirement[] = [
   {
     command: "git",
     description: "Git version control system",
-    required: true,
   },
   {
     command: "codex",
     description: "Codex CLI tool",
-    required: true,
-  },
-];
-
-const OPTIONAL_COMMANDS: SystemRequirement[] = [
-  {
-    command: "gh",
-    description: "GitHub CLI (recommended for enhanced repository management)",
-    required: false,
-  },
-  {
-    command: "devcontainer",
-    description: "Dev Container CLI (for development container support)",
-    required: false,
   },
 ];
 
@@ -93,27 +77,6 @@ export async function checkSystemRequirements(): Promise<
       if (!status.available) {
         missingRequired.push(requirement.command);
       }
-    }
-  }
-
-  // オプションコマンドのチェック
-  for (const requirement of OPTIONAL_COMMANDS) {
-    const commandResult = await checkCommand(requirement.command);
-
-    if (commandResult.isErr()) {
-      // オプションコマンドのエラーは無視し、利用不可として記録
-      const errorMessage = commandResult.error.type === "COMMAND_NOT_FOUND" ||
-          commandResult.error.type === "VERSION_CHECK_FAILED"
-        ? commandResult.error.error
-        : "Unknown error";
-      const status: CommandStatus = {
-        command: requirement.command,
-        available: false,
-        error: errorMessage,
-      };
-      results.push(status);
-    } else {
-      results.push(commandResult.value);
     }
   }
 
@@ -184,22 +147,6 @@ export function formatSystemCheckResults(
     }
   }
 
-  lines.push("");
-
-  // オプションコマンド
-  lines.push("【推奨コマンド】");
-  for (const requirement of OPTIONAL_COMMANDS) {
-    const result = results.find((r) => r.command === requirement.command);
-    if (result) {
-      const status = result.available ? "✅" : "⚠️";
-      const versionInfo = result.version ? ` (${result.version})` : "";
-      lines.push(`  ${status} ${requirement.command}${versionInfo}`);
-      if (!result.available) {
-        lines.push(`      ${requirement.description}`);
-      }
-    }
-  }
-
   if (missingRequired.length > 0) {
     lines.push("");
     lines.push("❌ 以下の必須コマンドが見つかりません:");
@@ -210,9 +157,7 @@ export function formatSystemCheckResults(
     lines.push("");
     lines.push("インストール方法:");
     lines.push("  - Git: https://git-scm.com/downloads");
-    lines.push(
-      "  - Codex CLI: https://docs.anthropic.com/en/docs/codex-code",
-    );
+    lines.push("  - Codex CLI: https://docs.anthropic.com/en/docs/codex-code");
   }
 
   return lines.join("\n");

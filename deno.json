@@ -16,8 +16,6 @@
   "imports": {
     "std/": "https://deno.land/std@0.224.0/",
     "discord.js": "npm:discord.js@^14.16.3",
-    "@google/genai": "npm:@google/genai@^1.0.0",
-    "zod": "npm:zod@^3.24.1",
     "neverthrow": "npm:neverthrow@8.2.0"
   },
   "compilerOptions": {

@@ -1,11 +1,8 @@
-/**
- * Codexのトークン使用量を追跡し、100k基準での使用率と次回リセット時刻を管理するクラス
- */
-
 export interface TokenUsageInfo {
   currentUsage: number;
   maxTokens: number;
   usagePercentage: number;
+  remainingPercentage: number;
   nextResetTime: Date;
   nextResetTimeUTC: string;
 }
@@ -20,13 +17,22 @@ export interface TokenUsageTrackerOptions {
 type TokenUsageEntry = {
   timestamp: number;
   tokens: number;
+  dedupeKey?: string;
 };
 
+export interface WindowUsageStatus {
+  label: "24h" | "5h" | "1w";
+  usedTokens: number;
+  limitTokens: number;
+  usedPercentage: number;
+  remainingPercentage: number;
+}
+
 export class TokenUsageTracker {
-  private static readonly TOKEN_BASE = 100000; // 100k基準
-  private static readonly RESET_INTERVAL_HOURS = 24; // 24時間でリセット
+  private static readonly RESET_INTERVAL_MS = 24 * 60 * 60 * 1000;
   private static readonly FIVE_HOUR_WINDOW_MS = 5 * 60 * 60 * 1000;
   private static readonly ONE_WEEK_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
   private currentUsage = 0;
   private lastResetTime = new Date();
   private readonly tokenBase: number;
@@ -36,132 +42,78 @@ export class TokenUsageTracker {
   private usageHistory: TokenUsageEntry[] = [];
 
   constructor(options?: TokenUsageTrackerOptions) {
-    this.tokenBase = options?.tokenBase ?? TokenUsageTracker.TOKEN_BASE;
+    this.tokenBase = options?.tokenBase ?? 100000;
     this.fiveHourLimit = options?.fiveHourLimit;
     this.weeklyLimit = options?.weeklyLimit;
     this.now = options?.now ?? (() => Date.now());
-    this.initializeResetTime();
+    this.initializeResetTimeUTC();
   }
 
-  /**
-   * リセット時刻を初期化（毎日午前0時UTC）
-   */
-  private initializeResetTime(): void {
+  private initializeResetTimeUTC(): void {
     const now = new Date(this.now());
-
-    // 今日の午前0時UTC
-    const todayMidnightUTC = new Date(
+    this.lastResetTime = new Date(Date.UTC(
       now.getUTCFullYear(),
       now.getUTCMonth(),
       now.getUTCDate(),
-    );
-
-    this.lastResetTime = todayMidnightUTC;
+      0,
+      0,
+      0,
+      0,
+    ));
   }
 
-  /**
-   * トークン使用量を追加
-   */
-  addTokenUsage(inputTokens: number, outputTokens: number): void {
+  addTokenUsage(
+    inputTokens: number,
+    outputTokens: number,
+    dedupeKey?: string,
+  ): boolean {
     this.checkAndResetIfNeeded();
-    const tokens = inputTokens + outputTokens;
-    this.currentUsage += tokens;
+
+    const totalTokens = Math.max(0, inputTokens) + Math.max(0, outputTokens);
+    if (totalTokens <= 0) {
+      return false;
+    }
+
+    if (dedupeKey && this.hasDedupeKey(dedupeKey)) {
+      return false;
+    }
+
+    this.currentUsage += totalTokens;
     this.usageHistory.push({
       timestamp: this.now(),
-      tokens,
+      tokens: totalTokens,
+      dedupeKey,
     });
     this.cleanupUsageHistory();
+    return true;
   }
 
-  /**
-   * 必要に応じてトークンカウントをリセット
-   */
+  private hasDedupeKey(dedupeKey: string): boolean {
+    for (let i = this.usageHistory.length - 1; i >= 0; i--) {
+      if (this.usageHistory[i].dedupeKey === dedupeKey) {
+        return true;
+      }
+      // 直近1週間を超える履歴は掃除対象なので探索を打ち切る
+      if (
+        this.usageHistory[i].timestamp <
+          this.now() - TokenUsageTracker.ONE_WEEK_WINDOW_MS
+      ) {
+        break;
+      }
+    }
+    return false;
+  }
+
   private checkAndResetIfNeeded(): void {
     const nowMs = this.now();
-    const timeSinceReset = nowMs - this.lastResetTime.getTime();
-    const resetInterval = TokenUsageTracker.RESET_INTERVAL_HOURS * 60 * 60 *
-      1000;
-
-    if (timeSinceReset >= resetInterval) {
+    if (
+      nowMs - this.lastResetTime.getTime() >=
+        TokenUsageTracker.RESET_INTERVAL_MS
+    ) {
       this.currentUsage = 0;
       this.lastResetTime = new Date(nowMs);
       this.usageHistory = [];
     }
-  }
-
-  /**
-   * 次回リセット時刻を取得
-   */
-  private getNextResetTime(): Date {
-    const resetInterval = TokenUsageTracker.RESET_INTERVAL_HOURS * 60 * 60 *
-      1000;
-    return new Date(this.lastResetTime.getTime() + resetInterval);
-  }
-
-  /**
-   * 現在のトークン使用量情報を取得
-   */
-  getUsageInfo(): TokenUsageInfo {
-    this.checkAndResetIfNeeded();
-    this.cleanupUsageHistory();
-
-    const nextResetTime = this.getNextResetTime();
-    const nextResetTimeUTC = nextResetTime.toISOString().slice(0, 16).replace(
-      "T",
-      " ",
-    );
-
-    return {
-      currentUsage: this.currentUsage,
-      maxTokens: this.tokenBase,
-      usagePercentage: Math.round(
-        (this.currentUsage / this.tokenBase) * 100,
-      ),
-      nextResetTime,
-      nextResetTimeUTC,
-    };
-  }
-
-  /**
-   * ステータス表示用の文字列を生成
-   */
-  getStatusString(): string {
-    const info = this.getUsageInfo();
-    const parts = [
-      `${info.currentUsage}/${info.maxTokens} (${info.usagePercentage}%)`,
-    ];
-
-    const windowStatuses = this.getWindowStatusParts();
-    if (windowStatuses.length > 0) {
-      parts.push(windowStatuses.join(" "));
-    }
-
-    parts.push(`次回リセット: ${info.nextResetTimeUTC}`);
-    return parts.join(" | ");
-  }
-
-  /**
-   * 現在の使用率を取得（0-100の数値）
-   */
-  getUsagePercentage(): number {
-    return this.getUsageInfo().usagePercentage;
-  }
-
-  /**
-   * 現在の使用量を取得
-   */
-  getCurrentUsage(): number {
-    this.checkAndResetIfNeeded();
-    return this.currentUsage;
-  }
-
-  /**
-   * 手動でリセットを実行
-   */
-  reset(): void {
-    this.currentUsage = 0;
-    this.lastResetTime = new Date(this.now());
-    this.usageHistory = [];
   }
 
   private cleanupUsageHistory(): void {
@@ -174,40 +126,108 @@ export class TokenUsageTracker {
     }
   }
 
-  private getWindowStatusParts(): string[] {
-    const parts: string[] = [];
-    const fiveHour = this.formatWindowStatus(
-      "5h",
-      TokenUsageTracker.FIVE_HOUR_WINDOW_MS,
-      this.fiveHourLimit,
+  private getNextResetTime(): Date {
+    return new Date(
+      this.lastResetTime.getTime() + TokenUsageTracker.RESET_INTERVAL_MS,
     );
-    if (fiveHour) {
-      parts.push(fiveHour);
-    }
-
-    const weekly = this.formatWindowStatus(
-      "1w",
-      TokenUsageTracker.ONE_WEEK_WINDOW_MS,
-      this.weeklyLimit,
-    );
-    if (weekly) {
-      parts.push(weekly);
-    }
-
-    return parts;
   }
 
-  private formatWindowStatus(
-    label: string,
-    windowMs: number,
-    limit?: number,
-  ): string | null {
-    if (!limit || limit <= 0) {
-      return null;
+  getUsageInfo(): TokenUsageInfo {
+    this.checkAndResetIfNeeded();
+    this.cleanupUsageHistory();
+
+    const usagePercentage = Math.min(
+      100,
+      Math.round((this.currentUsage / this.tokenBase) * 100),
+    );
+    const remainingPercentage = Math.max(0, 100 - usagePercentage);
+    const nextResetTime = this.getNextResetTime();
+
+    return {
+      currentUsage: this.currentUsage,
+      maxTokens: this.tokenBase,
+      usagePercentage,
+      remainingPercentage,
+      nextResetTime,
+      nextResetTimeUTC: nextResetTime.toISOString().slice(0, 16).replace(
+        "T",
+        " ",
+      ),
+    };
+  }
+
+  getWindowStatuses(): WindowUsageStatus[] {
+    const info = this.getUsageInfo();
+    const statuses: WindowUsageStatus[] = [{
+      label: "24h",
+      usedTokens: info.currentUsage,
+      limitTokens: info.maxTokens,
+      usedPercentage: info.usagePercentage,
+      remainingPercentage: info.remainingPercentage,
+    }];
+
+    if (this.fiveHourLimit && this.fiveHourLimit > 0) {
+      const used = this.getWindowUsage(TokenUsageTracker.FIVE_HOUR_WINDOW_MS);
+      const usedPct = Math.min(
+        100,
+        Math.round((used / this.fiveHourLimit) * 100),
+      );
+      statuses.push({
+        label: "5h",
+        usedTokens: used,
+        limitTokens: this.fiveHourLimit,
+        usedPercentage: usedPct,
+        remainingPercentage: Math.max(0, 100 - usedPct),
+      });
     }
-    const usage = this.getWindowUsage(windowMs);
-    const percentage = Math.min(100, Math.round((usage / limit) * 100));
-    return `${label}:${percentage}%`;
+
+    if (this.weeklyLimit && this.weeklyLimit > 0) {
+      const used = this.getWindowUsage(TokenUsageTracker.ONE_WEEK_WINDOW_MS);
+      const usedPct = Math.min(
+        100,
+        Math.round((used / this.weeklyLimit) * 100),
+      );
+      statuses.push({
+        label: "1w",
+        usedTokens: used,
+        limitTokens: this.weeklyLimit,
+        usedPercentage: usedPct,
+        remainingPercentage: Math.max(0, 100 - usedPct),
+      });
+    }
+
+    return statuses;
+  }
+
+  getStatusString(): string {
+    const [base, ...others] = this.getWindowStatuses();
+    const compact = [
+      `残量 ${base.remainingPercentage}%`,
+      `24h ${base.usedTokens}/${base.limitTokens}`,
+    ];
+    for (const status of others) {
+      compact.push(`${status.label} 残量${status.remainingPercentage}%`);
+    }
+    return compact.join(" | ");
+  }
+
+  getCurrentUsage(): number {
+    this.checkAndResetIfNeeded();
+    return this.currentUsage;
+  }
+
+  getUsagePercentage(): number {
+    return this.getUsageInfo().usagePercentage;
+  }
+
+  getRemainingPercentage(): number {
+    return this.getUsageInfo().remainingPercentage;
+  }
+
+  reset(): void {
+    this.currentUsage = 0;
+    this.lastResetTime = new Date(this.now());
+    this.usageHistory = [];
   }
 
   private getWindowUsage(windowMs: number): number {

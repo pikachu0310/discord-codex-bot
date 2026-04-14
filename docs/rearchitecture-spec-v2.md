@@ -1,14 +1,14 @@
 # Discord Codex Bot 再調査・新仕様書（TypeScript/Deno 再実装版）
 
-最終更新: 2026-04-14  
-対象リポジトリ: `discord-codex-bot`  
+最終更新: 2026-04-14\
+対象リポジトリ: `discord-codex-bot`\
 対象ブランチ: `worker/2026-04-09/worker-150249-wise-crow`
 
 ---
 
 ## 1. 本書の目的
 
-本書は、現行実装を再調査した上で、次回の再実装を行うための新仕様を1つに統合したドキュメントである。  
+本書は、現行実装を再調査した上で、次回の再実装を行うための新仕様を1つに統合したドキュメントである。\
 以下を同時に満たすことを目的とする。
 
 1. 現行リポジトリの仕様・挙動・実装構造をできる限り正確に記録する。
@@ -60,9 +60,12 @@
 
 責務は以下。
 
-1. `main.ts`: Discordイベント、Slashコマンド登録、メッセージ入口、スレッド名変更トリガー、定期Presence更新。
-2. `Admin`: Worker管理、ルーティング、復旧、終了処理、devcontainer統制、rate limit統制のハブ。
-3. `Worker`: Codex CLI実行、ストリーム解析、レスポンス整形、翻訳、セッション保存、中断。
+1. `main.ts`:
+   Discordイベント、Slashコマンド登録、メッセージ入口、スレッド名変更トリガー、定期Presence更新。
+2. `Admin`: Worker管理、ルーティング、復旧、終了処理、devcontainer統制、rate
+   limit統制のハブ。
+3. `Worker`: Codex
+   CLI実行、ストリーム解析、レスポンス整形、翻訳、セッション保存、中断。
 4. `WorkspaceManager`: JSON/JSONLベースの永続化管理。
 
 ## 3.2 現行Slashコマンド
@@ -107,7 +110,9 @@
 
 ## 3.5 現行のCLIフォールバック挙動
 
-`src/worker/worker.ts` + `src/worker/worker-configuration.ts` + `src/worker/codex-cli-capabilities.ts` により、失敗時に段階的フォールバックを行う。
+`src/worker/worker.ts` + `src/worker/worker-configuration.ts` +
+`src/worker/codex-cli-capabilities.ts`
+により、失敗時に段階的フォールバックを行う。
 
 1. `--output-format` 無効化
 2. `--verbose` 無効化
@@ -247,7 +252,8 @@
 1. 分岐は resume有無のみ。
 2. capability検出・エラー文言判定による自動フォールバックは禁止。
 3. 上記形式で失敗した場合は即時エラー返却。
-4. `<resume_id>` の内部実体はCodexが要求するIDに合わせる。UI/設計上 `thread_id` を受ける場合は、内部で `thread_id -> session_id` を解決して実行する。
+4. `<resume_id>` の内部実体はCodexが要求するIDに合わせる。UI/設計上 `thread_id`
+   を受ける場合は、内部で `thread_id -> session_id` を解決して実行する。
 
 ## 5.4 レート制限仕様（簡素化）
 
@@ -289,7 +295,7 @@
 
 ## 5.6 Discordプロフィール表示仕様（再実装）
 
-Presenceの活動名に「残り使用量%」を表示する。  
+Presenceの活動名に「残り使用量%」を表示する。\
 更新タイミングは以下。
 
 1. 起動直後
@@ -487,7 +493,7 @@ Presenceの活動名に「残り使用量%」を表示する。
 
 ## 9.3 進捗投稿仕様
 
-現行のDiscord分割ロジック（1500字分割）は継続可能。  
+現行のDiscord分割ロジック（1500字分割）は継続可能。\
 ただし機能削減により、進捗文言は簡素化する。
 
 ---
@@ -797,9 +803,6 @@ Gemini依存をなくし、モデル/認証系統をCodex一本化する。
 ## 付録A: 調査対象ファイル一覧
 
 本付録は `git ls-files` に基づく追跡ファイル一覧を後段で追記する。
-
-
-
 
 ```text
 .devcontainer/.env.devcontainer
