@@ -1,13 +1,4 @@
 import { CODEX_CLI } from "../constants.ts";
-import {
-  supportsExecColorFlag,
-  supportsExecJsonMode,
-  supportsDangerouslyBypassFlag,
-  supportsSearchFlag,
-  supportsLegacyOutputFormatFlag,
-  shouldUseVerboseFlag,
-  shouldUseDangerouslySkipPermissionsFlag,
-} from "./codex-cli-capabilities.ts";
 
 /**
  * Workerの設定管理を担当するクラス
@@ -18,13 +9,6 @@ export class WorkerConfiguration {
   private translatorUrl?: string;
   private dangerouslySkipPermissions: boolean;
   private maxOutputTokens: number;
-  private useExecJsonMode: boolean;
-  private useExecColorFlag: boolean;
-  private useDangerouslyBypassFlag: boolean;
-  private useOutputFormatFlag: boolean;
-  private useCliVerboseFlag: boolean;
-  private useDangerouslySkipPermissionsFlag: boolean;
-  private useSearchFlag: boolean;
 
   constructor(
     verbose = false,
@@ -37,17 +21,6 @@ export class WorkerConfiguration {
     this.appendSystemPrompt = appendSystemPrompt;
     this.translatorUrl = translatorUrl;
     this.dangerouslySkipPermissions = dangerouslySkipPermissions;
-    this.useExecJsonMode = supportsExecJsonMode();
-    this.useExecColorFlag = this.useExecJsonMode && supportsExecColorFlag();
-    this.useDangerouslyBypassFlag = this.dangerouslySkipPermissions &&
-      this.useExecJsonMode && supportsDangerouslyBypassFlag();
-    this.useSearchFlag = supportsSearchFlag();
-    this.useOutputFormatFlag = !this.useExecJsonMode &&
-      supportsLegacyOutputFormatFlag();
-    this.useCliVerboseFlag = shouldUseVerboseFlag();
-    this.useDangerouslySkipPermissionsFlag = this.dangerouslySkipPermissions &&
-      (!this.useExecJsonMode || !this.useDangerouslyBypassFlag) &&
-      shouldUseDangerouslySkipPermissionsFlag();
 
     // 環境変数からトークン制限を取得、未設定の場合はデフォルト値を使用
     this.maxOutputTokens = maxOutputTokens ||
@@ -84,58 +57,10 @@ export class WorkerConfiguration {
   }
 
   /**
-   * exec --jsonモードを使用するか
-   */
-  shouldUseExecJsonMode(): boolean {
-    return this.useExecJsonMode;
-  }
-
-  /**
-   * exec --jsonモードを無効化してレガシーモードへフォールバック
-   */
-  disableExecJsonMode(): void {
-    this.useExecJsonMode = false;
-    this.useExecColorFlag = false;
-    this.useDangerouslyBypassFlag = false;
-    this.useOutputFormatFlag = supportsLegacyOutputFormatFlag();
-    this.useDangerouslySkipPermissionsFlag = this.dangerouslySkipPermissions &&
-      shouldUseDangerouslySkipPermissionsFlag();
-  }
-
-  /**
-   * execモードでの--colorフラグを無効化
-   */
-  disableExecColorFlag(): void {
-    this.useExecColorFlag = false;
-  }
-
-  /**
-   * execモードでの危険フラグを無効化し、可能であれば旧フラグにフォールバック
-   */
-  disableDangerouslyBypassFlag(): void {
-    this.useDangerouslyBypassFlag = false;
-    if (this.dangerouslySkipPermissions) {
-      this.useDangerouslySkipPermissionsFlag = shouldUseDangerouslySkipPermissionsFlag();
-    }
-  }
-
-  /**
    * 権限チェックスキップ設定を設定する
    */
   setDangerouslySkipPermissions(skipPermissions: boolean): void {
     this.dangerouslySkipPermissions = skipPermissions;
-    if (skipPermissions) {
-      this.useDangerouslyBypassFlag = this.useExecJsonMode &&
-        supportsDangerouslyBypassFlag();
-      if (this.useDangerouslyBypassFlag) {
-        this.useDangerouslySkipPermissionsFlag = false;
-      } else {
-        this.useDangerouslySkipPermissionsFlag = shouldUseDangerouslySkipPermissionsFlag();
-      }
-    } else {
-      this.useDangerouslyBypassFlag = false;
-      this.useDangerouslySkipPermissionsFlag = false;
-    }
   }
 
   /**
@@ -179,112 +104,28 @@ export class WorkerConfiguration {
    * Codexコマンドの引数を構築
    */
   buildCodexArgs(prompt: string, sessionId?: string | null): string[] {
-    const args: string[] = [];
+    const args: string[] = [
+      "--search",
+      "exec",
+      "--json",
+      "--color",
+      "never",
+    ];
 
-    if (this.useSearchFlag) {
-      args.push("--search");
-    }
-
-    if (this.useExecJsonMode) {
-      args.push("exec");
-      args.push("--json");
-      if (this.useExecColorFlag) {
-        args.push("--color", "never");
-      }
-
-      if (this.verbose && this.useCliVerboseFlag) {
-        args.push("--verbose");
-      }
-
-      if (this.dangerouslySkipPermissions) {
-        if (this.useDangerouslyBypassFlag) {
-          args.push("--dangerously-bypass-approvals-and-sandbox");
-        } else if (this.useDangerouslySkipPermissionsFlag) {
-          args.push("--dangerously-skip-permissions");
-        }
-      }
-
-      if (this.appendSystemPrompt) {
-        args.push("--append-system-prompt", this.appendSystemPrompt);
-      }
-
-      if (sessionId) {
-        args.push("resume");
-        args.push(sessionId);
-      }
-
-      args.push(prompt);
-      return args;
-    }
-
-    if (this.useOutputFormatFlag) {
-      args.push("--output-format", "stream-json");
-    }
-
-    if (this.verbose && this.useCliVerboseFlag) {
-      args.push("--verbose");
-    }
-
-    if (sessionId) {
-      args.push("--continue");
-    }
-
-    if (this.dangerouslySkipPermissions && this.useDangerouslySkipPermissionsFlag) {
-      args.push("--dangerously-skip-permissions");
+    if (this.dangerouslySkipPermissions) {
+      args.push("--dangerously-bypass-approvals-and-sandbox");
     }
 
     if (this.appendSystemPrompt) {
       args.push("--append-system-prompt", this.appendSystemPrompt);
     }
 
+    if (sessionId) {
+      args.push("resume", sessionId);
+    }
+
     args.push(prompt);
     return args;
-  }
-
-  /**
-   * Codex CLIが--output-formatをサポートしない場合にフラグを無効化
-   */
-  disableOutputFormatFlag(): void {
-    this.useOutputFormatFlag = false;
-  }
-
-  /**
-   * --output-formatフラグを使用するかどうか
-   */
-  shouldUseOutputFormat(): boolean {
-    return this.useOutputFormatFlag;
-  }
-
-  /**
-   * Codex CLIの--verboseフラグを使用するかどうか
-   */
-  shouldUseCliVerboseFlag(): boolean {
-    return this.useCliVerboseFlag;
-  }
-
-  /**
-   * Codex CLIの--dangerously-skip-permissionsフラグを使用するかどうか
-   */
-  shouldUseDangerouslySkipPermissionsFlag(): boolean {
-    return this.useDangerouslySkipPermissionsFlag;
-  }
-
-  /**
-   * Codex CLIが--verboseをサポートしない場合にフラグを無効化
-   */
-  disableVerboseFlag(): void {
-    this.useCliVerboseFlag = false;
-  }
-
-  /**
-   * Codex CLIが--dangerously-skip-permissionsをサポートしない場合にフラグを無効化
-   */
-  disableDangerouslySkipPermissionsFlag(): void {
-    this.useDangerouslySkipPermissionsFlag = false;
-  }
-
-  disableSearchFlag(): void {
-    this.useSearchFlag = false;
   }
 
   /**

@@ -200,7 +200,7 @@ export class DevcontainerManager {
     return {
       hasDevcontainer: true,
       message:
-        "devcontainer.jsonが見つかりましたが、devcontainer CLIがインストールされていません。通常のローカル環境でCodexを実行します。\n\n`--dangerously-skip-permissions`オプションを使用しますか？（権限チェックをスキップします。注意して使用してください）",
+        "devcontainer.jsonが見つかりましたが、devcontainer CLIがインストールされていません。通常のローカル環境でCodexを実行します。\n\n`--dangerously-bypass-approvals-and-sandbox`オプションを使用しますか？（権限チェックをスキップします。注意して使用してください）",
       components: [this.createPermissionButtons(threadId)],
       warning:
         "devcontainer CLIをインストールしてください: npm install -g @devcontainers/cli",

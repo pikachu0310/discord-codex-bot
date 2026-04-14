@@ -318,7 +318,7 @@ Deno.test("Admin - anthropics featureを含むdevcontainer.jsonの設定確認",
       true,
     );
     assertEquals(
-      result.message.includes("--dangerously-skip-permissions"),
+      result.message.includes("--dangerously-bypass-approvals-and-sandbox"),
       true,
     );
   } else {

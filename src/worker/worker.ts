@@ -239,7 +239,7 @@ export class Worker implements IWorker {
       error: "Codex execution did not run",
     });
 
-    const maxAttempts = 5;
+    const maxAttempts = this.requiresTtyForCodex ? 1 : 2;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const args = this.buildExecutionArgs(prompt);
 
@@ -252,113 +252,6 @@ export class Worker implements IWorker {
 
       this.logVerbose("ストリーミング実行開始");
       lastResult = await this.executeCodexStreaming(args, onProgress);
-
-      if (
-        lastResult.isErr() &&
-        lastResult.error.type === "CODEX_CLI_UNSUPPORTED_OPTION"
-      ) {
-        if (
-          lastResult.error.option === "--output-format" &&
-          attempt < maxAttempts - 1
-        ) {
-          this.logVerbose(
-            "Codex CLIが--output-formatをサポートしていないため再試行",
-            {
-              stderr: lastResult.error.stderr,
-            },
-          );
-          this.configuration.disableOutputFormatFlag();
-          continue;
-        }
-
-        if (
-          lastResult.error.option === "--verbose" &&
-          this.configuration.shouldUseCliVerboseFlag() &&
-          attempt < maxAttempts - 1
-        ) {
-          this.logVerbose(
-            "Codex CLIが--verboseをサポートしていないため再試行",
-            {
-              stderr: lastResult.error.stderr,
-            },
-          );
-          this.configuration.disableVerboseFlag();
-          continue;
-        }
-
-        if (
-          lastResult.error.option === "--dangerously-skip-permissions" &&
-          this.configuration.shouldUseDangerouslySkipPermissionsFlag() &&
-          attempt < maxAttempts - 1
-        ) {
-          this.logVerbose(
-            "Codex CLIが--dangerously-skip-permissionsをサポートしていないため再試行",
-            {
-              stderr: lastResult.error.stderr,
-            },
-          );
-          this.configuration.disableDangerouslySkipPermissionsFlag();
-          continue;
-        }
-
-        if (
-          lastResult.error.option === "--search" &&
-          attempt < maxAttempts - 1
-        ) {
-          this.logVerbose(
-            "Codex CLIが--searchをサポートしていないためフラグを無効化",
-            {
-              stderr: lastResult.error.stderr,
-            },
-          );
-          this.configuration.disableSearchFlag();
-          continue;
-        }
-
-        if (
-          ["--json", "exec", "resume"].includes(lastResult.error.option) &&
-          attempt < maxAttempts - 1
-        ) {
-          this.logVerbose(
-            "Codex CLIのexec/jsonモードに非対応のためレガシーモードへ切り替え",
-            {
-              option: lastResult.error.option,
-              stderr: lastResult.error.stderr,
-            },
-          );
-          this.configuration.disableExecJsonMode();
-          continue;
-        }
-
-        if (
-          lastResult.error.option === "--color" &&
-          attempt < maxAttempts - 1
-        ) {
-          this.logVerbose(
-            "Codex CLIが--colorをサポートしていないためフラグを無効化",
-            {
-              stderr: lastResult.error.stderr,
-            },
-          );
-          this.configuration.disableExecColorFlag();
-          continue;
-        }
-
-        if (
-          lastResult.error.option ===
-            "--dangerously-bypass-approvals-and-sandbox" &&
-          attempt < maxAttempts - 1
-        ) {
-          this.logVerbose(
-            "Codex CLIが--dangerously-bypass-approvals-and-sandboxをサポートしていないため旧フラグへ切り替え",
-            {
-              stderr: lastResult.error.stderr,
-            },
-          );
-          this.configuration.disableDangerouslyBypassFlag();
-          continue;
-        }
-      }
 
       if (
         lastResult.isErr() &&
@@ -987,49 +880,6 @@ For research, analysis, or informational tasks, do not use the exit_plan_mode to
       return err({
         type: "CODEX_CLI_UNSUPPORTED_OPTION",
         option: "resume",
-        stderr: stderrMessage,
-      });
-    }
-
-    if (stderrMessage.includes("unexpected argument '--output-format'")) {
-      this.logVerbose("Codex CLIが--output-formatを認識しないエラーを検出", {
-        exitCode: code,
-        stderr: stderrMessage,
-      });
-      return err({
-        type: "CODEX_CLI_UNSUPPORTED_OPTION",
-        option: "--output-format",
-        stderr: stderrMessage,
-      });
-    }
-
-    if (stderrMessage.includes("unexpected argument '--verbose'")) {
-      this.logVerbose("Codex CLIが--verboseを認識しないエラーを検出", {
-        exitCode: code,
-        stderr: stderrMessage,
-      });
-      return err({
-        type: "CODEX_CLI_UNSUPPORTED_OPTION",
-        option: "--verbose",
-        stderr: stderrMessage,
-      });
-    }
-
-    if (
-      stderrMessage.includes(
-        "unexpected argument '--dangerously-skip-permissions'",
-      )
-    ) {
-      this.logVerbose(
-        "Codex CLIが--dangerously-skip-permissionsを認識しないエラーを検出",
-        {
-          exitCode: code,
-          stderr: stderrMessage,
-        },
-      );
-      return err({
-        type: "CODEX_CLI_UNSUPPORTED_OPTION",
-        option: "--dangerously-skip-permissions",
         stderr: stderrMessage,
       });
     }

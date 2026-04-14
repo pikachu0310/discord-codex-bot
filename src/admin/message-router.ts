@@ -246,6 +246,14 @@ export class MessageRouter {
           case "SESSION_LOG_FAILED":
           case "DEVCONTAINER_START_FAILED":
             return ok(`エラーが発生しました: ${error.error}`);
+          case "CODEX_CLI_UNSUPPORTED_OPTION":
+            return ok(
+              `Codex CLIが未対応のオプションを検出しました (${error.option}): ${error.stderr}`,
+            );
+          case "CODEX_CLI_REQUIRES_TTY":
+            return ok(
+              `Codex CLIがTTY実行を要求しました: ${error.stderr}`,
+            );
           default:
             // Never型になるはずなので、全てのケースがカバーされている
             return error satisfies never;
