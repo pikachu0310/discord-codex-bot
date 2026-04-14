@@ -7,6 +7,8 @@ export interface ThreadInfo {
   repositoryFullName: string | null;
   repositoryLocalPath: string | null;
   worktreePath: string | null;
+  firstUserMessageReceivedAt?: string | null;
+  autoRenamedByFirstMessage?: boolean;
   createdAt: string;
   lastActiveAt: string;
   status: "active" | "inactive" | "archived";
@@ -141,6 +143,12 @@ export class WorkspaceManager {
         join(this.config.threadsDir, `${threadId}.json`),
       );
       const parsed = JSON.parse(raw) as ThreadInfo;
+      if (parsed.firstUserMessageReceivedAt === undefined) {
+        parsed.firstUserMessageReceivedAt = null;
+      }
+      if (parsed.autoRenamedByFirstMessage === undefined) {
+        parsed.autoRenamedByFirstMessage = false;
+      }
       return parsed;
     } catch (error) {
       if (error instanceof Deno.errors.NotFound) {

@@ -1,16 +1,9 @@
-export interface ParsedUsage {
-  inputTokens: number;
-  outputTokens: number;
-  dedupeKey?: string;
-}
-
 export interface ParsedCodexLine {
   raw: string;
   json?: Record<string, unknown>;
   text?: string;
   finalText?: string;
   sessionId?: string;
-  usage?: ParsedUsage;
   rateLimitTimestamp?: number;
 }
 
@@ -61,11 +54,9 @@ export class CodexStreamProcessor {
 
     try {
       const json = JSON.parse(trimmed) as Record<string, unknown>;
-      const eventType = typeof json.type === "string" ? json.type : "";
       const sessionId = this.extractSessionId(json);
       const text = this.extractProgressText(json);
       const finalText = this.extractFinalText(json);
-      const usage = this.extractUsage(json);
 
       const rateFromText = extractRateLimitTimestamp(
         [text, finalText].filter(Boolean).join("\n"),
@@ -77,13 +68,6 @@ export class CodexStreamProcessor {
         text: text || undefined,
         finalText: finalText || undefined,
         sessionId,
-        usage: usage
-          ? {
-            ...usage,
-            dedupeKey: usage.dedupeKey ??
-              (sessionId ? `${sessionId}:${eventType}` : undefined),
-          }
-          : undefined,
         rateLimitTimestamp: rateFromText,
       };
     } catch {
@@ -123,24 +107,5 @@ export class CodexStreamProcessor {
         flattenText(json.item);
     }
     return "";
-  }
-
-  private extractUsage(json: Record<string, unknown>): ParsedUsage | undefined {
-    const usageObj = asRecord(json.usage);
-    if (!usageObj) return undefined;
-
-    const inputTokens = Number(usageObj.input_tokens ?? 0) +
-      Number(usageObj.cache_creation_input_tokens ?? 0) +
-      Number(usageObj.cache_read_input_tokens ?? 0);
-    const outputTokens = Number(usageObj.output_tokens ?? 0);
-
-    if (!Number.isFinite(inputTokens) || !Number.isFinite(outputTokens)) {
-      return undefined;
-    }
-
-    return {
-      inputTokens,
-      outputTokens,
-    };
   }
 }

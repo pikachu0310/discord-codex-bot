@@ -1,5 +1,4 @@
 import { err, ok, Result } from "neverthrow";
-import type { Client } from "discord.js";
 import type { IWorker } from "../worker/types.ts";
 import type { AdminError, DiscordMessage, IAdmin } from "./types.ts";
 import {
@@ -10,7 +9,6 @@ import {
 import { WorkerManager } from "./worker-manager.ts";
 import { MessageRouter } from "./message-router.ts";
 import { RateLimitManager } from "./rate-limit-manager.ts";
-import type { TokenUsageTrackerOptions } from "../token-usage-tracker.ts";
 
 export class Admin implements IAdmin {
   private readonly workerManager: WorkerManager;
@@ -21,30 +19,20 @@ export class Admin implements IAdmin {
   constructor(
     private state: AdminState,
     private readonly workspaceManager: WorkspaceManager,
-    private readonly verbose = false,
     appendSystemPrompt?: string,
-    tokenUsageOptions?: TokenUsageTrackerOptions,
   ) {
-    this.rateLimitManager = new RateLimitManager(verbose, tokenUsageOptions);
+    this.rateLimitManager = new RateLimitManager();
     this.workerManager = new WorkerManager(
       workspaceManager,
-      verbose,
       appendSystemPrompt,
-      this.rateLimitManager,
     );
-    this.messageRouter = new MessageRouter(
-      this.workerManager,
-      this.rateLimitManager,
-      verbose,
-    );
+    this.messageRouter = new MessageRouter(this.workerManager);
   }
 
   static fromState(
     adminState: AdminState | null,
     workspaceManager: WorkspaceManager,
-    verbose?: boolean,
     appendSystemPrompt?: string,
-    tokenUsageOptions?: TokenUsageTrackerOptions,
   ): Admin {
     return new Admin(
       adminState ?? {
@@ -52,9 +40,7 @@ export class Admin implements IAdmin {
         lastUpdated: new Date().toISOString(),
       },
       workspaceManager,
-      verbose,
       appendSystemPrompt,
-      tokenUsageOptions,
     );
   }
 
@@ -66,7 +52,7 @@ export class Admin implements IAdmin {
         continue;
       }
       const restored = await this.workerManager.restoreThread(threadInfo);
-      if (restored.isErr() && this.verbose) {
+      if (restored.isErr()) {
         console.error("[Admin] thread restore failed", restored.error);
       }
     }
@@ -194,26 +180,6 @@ export class Admin implements IAdmin {
 
   setThreadCloseCallback(callback: (threadId: string) => Promise<void>): void {
     this.onThreadClose = callback;
-  }
-
-  setDiscordClient(client: Client): void {
-    this.rateLimitManager.setDiscordClient(client);
-  }
-
-  async updateDiscordStatusWithTokenUsage(): Promise<void> {
-    await this.rateLimitManager.updateDiscordStatusWithTokenUsage();
-  }
-
-  getStatusSummary() {
-    return this.rateLimitManager.getStatusSummary();
-  }
-
-  trackTokenUsage(
-    inputTokens: number,
-    outputTokens: number,
-    dedupeKey?: string,
-  ): void {
-    this.rateLimitManager.trackTokenUsage(inputTokens, outputTokens, dedupeKey);
   }
 
   createRateLimitMessage(): string {

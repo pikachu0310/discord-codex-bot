@@ -13,7 +13,7 @@ import {
   ThreadChannel,
 } from "discord.js";
 import { Admin } from "./admin/admin.ts";
-import { DISCORD } from "./constants.ts";
+import { MESSAGES } from "./constants.ts";
 import { getEnv } from "./env.ts";
 import { ensureRepository, parseRepository } from "./git-utils.ts";
 import {
@@ -27,6 +27,8 @@ import { WorkspaceManager } from "./workspace/workspace.ts";
 function chunkDiscordContent(content: string): string[] {
   return splitIntoDiscordChunks(content).filter((chunk) => chunk.length > 0);
 }
+
+const DEFAULT_THREAD_NAME_PATTERN = /^[\w.-]+\/[\w.-]+-\d+$/;
 
 console.log("システム要件をチェックしています...");
 const systemCheckResult = await checkSystemRequirements();
@@ -53,13 +55,7 @@ const adminState = await workspaceManager.loadAdminState();
 const admin = Admin.fromState(
   adminState,
   workspaceManager,
-  env.VERBOSE,
   env.CODEX_APPEND_SYSTEM_PROMPT,
-  {
-    tokenBase: env.CODEX_STATUS_LIMIT_TOKENS,
-    fiveHourLimit: env.CODEX_LIMIT_5H_TOKENS,
-    weeklyLimit: env.CODEX_LIMIT_1W_TOKENS,
-  },
 );
 
 const client = new Client({
@@ -84,10 +80,6 @@ const commands = [
     )
     .toJSON(),
   new SlashCommandBuilder()
-    .setName("status")
-    .setDescription("Codex使用状況（残り使用量%）を表示します")
-    .toJSON(),
-  new SlashCommandBuilder()
     .setName("stop")
     .setDescription("実行中のCodexを中断します")
     .toJSON(),
@@ -104,12 +96,6 @@ const commands = [
 
 client.once(Events.ClientReady, async (readyClient) => {
   console.log(`ログイン完了: ${readyClient.user.tag}`);
-  admin.setDiscordClient(readyClient);
-  await admin.updateDiscordStatusWithTokenUsage();
-
-  setInterval(() => {
-    admin.updateDiscordStatusWithTokenUsage().catch(console.error);
-  }, DISCORD.PRESENCE_UPDATE_INTERVAL_MS);
 
   const restoreResult = await admin.restoreActiveThreads();
   if (restoreResult.isErr()) {
@@ -159,20 +145,6 @@ async function handleAutocomplete(interaction: AutocompleteInteraction) {
 
 async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
   const { commandName } = interaction;
-
-  if (commandName === "status") {
-    const summary = admin.getStatusSummary();
-    const lines = ["📊 Codex使用状況"];
-    for (const status of summary.windows) {
-      lines.push(
-        `- ${status.label} 残量: ${status.remainingPercentage}% (${status.usedTokens}/${status.limitTokens})`,
-      );
-    }
-    lines.push(`- 次回リセット(UTC): ${summary.nextResetUTC}`);
-    lines.push(`- 次回リセット(JST): ${summary.nextResetJST}`);
-    await interaction.reply(lines.join("\n"));
-    return;
-  }
 
   if (commandName === "start") {
     await handleStart(interaction);
@@ -293,26 +265,42 @@ client.on(Events.MessageCreate, async (message) => {
   const thread = message.channel as ThreadChannel;
   const threadId = thread.id;
 
-  // スレッド名が "owner/repo-timestamp" 形式の場合は、初回メッセージでCodex要約名へ変更を試行
-  if (thread.name.match(/^[\w.-]+\/[\w.-]+-\d+$/)) {
+  try {
     const threadInfo = await workspaceManager.loadThreadInfo(threadId);
-    const workerState = await workspaceManager.loadWorkerState(threadId);
-    const renameResult = await generateThreadNameWithCodex(
-      message.content,
-      threadInfo?.repositoryFullName ?? undefined,
-      workerState?.worktreePath ?? undefined,
-    );
-    if (renameResult.isOk()) {
-      await thread.setName(renameResult.value).catch(() => {});
+    if (threadInfo && !threadInfo.firstUserMessageReceivedAt) {
+      threadInfo.firstUserMessageReceivedAt = new Date().toISOString();
+      threadInfo.autoRenamedByFirstMessage = false;
+
+      if (
+        message.content.trim().length > 0 &&
+        DEFAULT_THREAD_NAME_PATTERN.test(thread.name)
+      ) {
+        const workerState = await workspaceManager.loadWorkerState(threadId);
+        const renameResult = await generateThreadNameWithCodex(
+          message.content,
+          threadInfo.repositoryFullName ?? undefined,
+          workerState?.worktreePath ?? undefined,
+        );
+        if (renameResult.isOk()) {
+          await thread.setName(renameResult.value).catch(() => {});
+          threadInfo.autoRenamedByFirstMessage = true;
+        }
+      }
+
+      await workspaceManager.saveThreadInfo(threadInfo);
     }
+  } catch (error) {
+    console.error("[ThreadRename] first-message rename failed", error);
   }
 
+  let lastProgressMessageUrl: string | null = null;
   const onProgress = async (content: string) => {
     for (const chunk of chunkDiscordContent(content)) {
-      await message.channel.send({
+      const sent = await message.channel.send({
         content: chunk,
         flags: 4096,
       });
+      lastProgressMessageUrl = sent.url;
     }
   };
 
@@ -347,7 +335,11 @@ client.on(Events.MessageCreate, async (message) => {
 
   const reply = result.value;
   if (typeof reply === "string") {
-    const chunks = chunkDiscordContent(reply);
+    const finalReply = reply.trim() === MESSAGES.NO_FINAL_RESPONSE &&
+        lastProgressMessageUrl
+      ? `Codexの最終テキストを取得できなかったため、直近の出力を参照してください。\n> ${lastProgressMessageUrl}`
+      : reply;
+    const chunks = chunkDiscordContent(finalReply);
     if (chunks.length === 0) return;
     await message.reply(chunks[0]);
     for (const chunk of chunks.slice(1)) {

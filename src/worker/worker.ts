@@ -1,6 +1,6 @@
 import { err, ok, Result } from "neverthrow";
 import { GitRepository } from "../git-utils.ts";
-import { PROCESS } from "../constants.ts";
+import { MESSAGES, PROCESS } from "../constants.ts";
 import { splitIntoDiscordChunks } from "../utils/discord-message.ts";
 import { WorkerState, WorkspaceManager } from "../workspace/workspace.ts";
 import {
@@ -12,7 +12,6 @@ import { MessageFormatter } from "./message-formatter.ts";
 import { SessionLogger } from "./session-logger.ts";
 import { WorkerConfiguration } from "./worker-configuration.ts";
 import type { IWorker, WorkerError } from "./types.ts";
-import type { RateLimitManager } from "../admin/rate-limit-manager.ts";
 
 export class Worker implements IWorker {
   private readonly configuration: WorkerConfiguration;
@@ -29,13 +28,11 @@ export class Worker implements IWorker {
     private state: WorkerState,
     private readonly workspaceManager: WorkspaceManager,
     codexExecutor?: CodexCommandExecutor,
-    verbose = false,
     appendSystemPrompt?: string,
-    private readonly rateLimitManager?: RateLimitManager,
   ) {
-    this.configuration = new WorkerConfiguration(verbose, appendSystemPrompt);
+    this.configuration = new WorkerConfiguration(appendSystemPrompt);
     this.codexExecutor = codexExecutor ??
-      new DefaultCodexCommandExecutor(verbose);
+      new DefaultCodexCommandExecutor();
     this.sessionLogger = new SessionLogger(workspaceManager);
     this.streamProcessor = new CodexStreamProcessor();
   }
@@ -86,14 +83,6 @@ export class Worker implements IWorker {
           newSessionId = parsed.sessionId;
         }
 
-        if (parsed.usage && this.rateLimitManager) {
-          this.rateLimitManager.trackTokenUsage(
-            parsed.usage.inputTokens,
-            parsed.usage.outputTokens,
-            parsed.usage.dedupeKey,
-          );
-        }
-
         if (parsed.finalText) {
           finalResult = parsed.finalText;
           continue;
@@ -129,13 +118,6 @@ export class Worker implements IWorker {
         }
         if (parsed.sessionId) {
           newSessionId = parsed.sessionId;
-        }
-        if (parsed.usage && this.rateLimitManager) {
-          this.rateLimitManager.trackTokenUsage(
-            parsed.usage.inputTokens,
-            parsed.usage.outputTokens,
-            parsed.usage.dedupeKey,
-          );
         }
       }
 
@@ -180,7 +162,7 @@ export class Worker implements IWorker {
 
       return ok(
         this.formatter.formatResponse(
-          finalResult.trim() || "Codex からの応答を取得できませんでした。",
+          finalResult.trim() || MESSAGES.NO_FINAL_RESPONSE,
         ),
       );
     } catch (error) {
@@ -325,17 +307,13 @@ export class Worker implements IWorker {
   static async fromState(
     workerState: WorkerState,
     workspaceManager: WorkspaceManager,
-    verbose?: boolean,
     appendSystemPrompt?: string,
-    rateLimitManager?: RateLimitManager,
   ): Promise<Worker> {
     return new Worker(
       workerState,
       workspaceManager,
       undefined,
-      verbose,
       appendSystemPrompt,
-      rateLimitManager,
     );
   }
 }

@@ -29,3 +29,31 @@ Deno.test("WorkspaceManager: worker state を保存・読み込みできる", as
     await Deno.remove(baseDir, { recursive: true });
   }
 });
+
+Deno.test(
+  "WorkspaceManager: thread info は初回メッセージ関連フィールドを補完する",
+  async () => {
+    const baseDir = await Deno.makeTempDir({ prefix: "workspace_test_" });
+    try {
+      const manager = new WorkspaceManager(baseDir);
+      await manager.initialize();
+
+      await manager.saveThreadInfo({
+        threadId: "thread-1",
+        repositoryFullName: "a/b",
+        repositoryLocalPath: "a/b",
+        worktreePath: "/tmp/worktree",
+        createdAt: new Date().toISOString(),
+        lastActiveAt: new Date().toISOString(),
+        status: "active",
+      });
+
+      const loaded = await manager.loadThreadInfo("thread-1");
+      assertExists(loaded);
+      assertEquals(loaded?.firstUserMessageReceivedAt, null);
+      assertEquals(loaded?.autoRenamedByFirstMessage, false);
+    } finally {
+      await Deno.remove(baseDir, { recursive: true });
+    }
+  },
+);

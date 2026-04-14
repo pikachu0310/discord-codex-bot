@@ -5,9 +5,7 @@ Discord スレッド上で Codex CLI を実行する Bot です。\
 
 1. `/start owner/repo` でリポジトリ準備とスレッド開始
 2. スレッドメッセージを Codex へ転送して結果を返信
-3. `/status` で残り使用量%を表示
-4. Discord Presence に残り使用量%を表示
-5. `/stop`, `/plan`, `/close`
+3. `/stop`, `/plan`, `/close`
 
 ## 削除済み機能
 
@@ -48,15 +46,11 @@ deno task start
 
 ## 環境変数
 
-| 変数                         | 必須 | 説明                             |
-| ---------------------------- | ---- | -------------------------------- |
-| `DISCORD_TOKEN`              | ✅   | Discord Bot トークン             |
-| `WORK_BASE_DIR`              | ✅   | 作業ディレクトリ                 |
-| `VERBOSE`                    | ❌   | 詳細ログ出力                     |
-| `CODEX_APPEND_SYSTEM_PROMPT` | ❌   | Codex 追加システムプロンプト     |
-| `CODEX_STATUS_LIMIT_TOKENS`  | ❌   | 24h上限トークン数（既定 100000） |
-| `CODEX_LIMIT_5H_TOKENS`      | ❌   | 5h窓上限トークン数               |
-| `CODEX_LIMIT_1W_TOKENS`      | ❌   | 1w窓上限トークン数               |
+| 変数                         | 必須 | 説明                         |
+| ---------------------------- | ---- | ---------------------------- |
+| `DISCORD_TOKEN`              | ✅   | Discord Bot トークン         |
+| `WORK_BASE_DIR`              | ✅   | 作業ディレクトリ             |
+| `CODEX_APPEND_SYSTEM_PROMPT` | ❌   | Codex 追加システムプロンプト |
 
 ## 開発コマンド
 

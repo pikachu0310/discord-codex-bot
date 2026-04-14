@@ -1,7 +1,6 @@
 export const DISCORD = {
   MAX_MESSAGE_LENGTH: 2000,
   MESSAGE_CHUNK_LENGTH: 1500,
-  PRESENCE_UPDATE_INTERVAL_MS: 10 * 60 * 1000,
 } as const;
 
 export const CODEX = {
@@ -15,9 +14,13 @@ export const CODEX = {
     "--dangerously-bypass-approvals-and-sandbox",
   ] as const,
   THREAD_NAME_MAX_LENGTH: 30,
-  STATUS_USAGE_BASE_TOKENS: 100000,
 } as const;
 
 export const PROCESS = {
   TERMINATION_TIMEOUT_MS: 5000,
+} as const;
+
+export const MESSAGES = {
+  RATE_LIMIT: "Codexのレート制限に達しました。時間を置いて再実行してください。",
+  NO_FINAL_RESPONSE: "Codex からの応答を取得できませんでした。",
 } as const;

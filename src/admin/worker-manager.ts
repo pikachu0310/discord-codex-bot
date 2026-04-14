@@ -4,7 +4,6 @@ import { Worker } from "../worker/worker.ts";
 import type { IWorker } from "../worker/types.ts";
 import type { ThreadInfo, WorkerState } from "../workspace/workspace.ts";
 import { WorkspaceManager } from "../workspace/workspace.ts";
-import type { RateLimitManager } from "./rate-limit-manager.ts";
 
 export type WorkerManagerError =
   | { type: "WORKER_CREATE_FAILED"; threadId: string; reason: string }
@@ -15,9 +14,7 @@ export class WorkerManager {
 
   constructor(
     private readonly workspaceManager: WorkspaceManager,
-    private readonly verbose = false,
     private readonly appendSystemPrompt?: string,
-    private readonly rateLimitManager?: RateLimitManager,
   ) {}
 
   async createWorker(
@@ -39,9 +36,7 @@ export class WorkerManager {
       state,
       this.workspaceManager,
       undefined,
-      this.verbose,
       this.appendSystemPrompt,
-      this.rateLimitManager,
     );
     const saved = await worker.save();
     if (saved.isErr()) {
@@ -57,6 +52,8 @@ export class WorkerManager {
       repositoryFullName: null,
       repositoryLocalPath: null,
       worktreePath: null,
+      firstUserMessageReceivedAt: null,
+      autoRenamedByFirstMessage: false,
       createdAt: now,
       lastActiveAt: now,
       status: "active",
@@ -94,9 +91,7 @@ export class WorkerManager {
       const worker = await Worker.fromState(
         workerState,
         this.workspaceManager,
-        this.verbose,
         this.appendSystemPrompt,
-        this.rateLimitManager,
       );
       this.workers.set(threadInfo.threadId, worker);
       await this.workspaceManager.updateThreadLastActive(threadInfo.threadId);

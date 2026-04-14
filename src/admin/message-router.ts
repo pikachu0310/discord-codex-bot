@@ -1,6 +1,5 @@
 import { err, ok, Result } from "neverthrow";
 import type { DiscordMessage } from "./types.ts";
-import { RateLimitManager } from "./rate-limit-manager.ts";
 import { WorkerManager } from "./worker-manager.ts";
 
 export type MessageRouterError =
@@ -14,11 +13,7 @@ export type MessageRouterError =
   | { type: "MESSAGE_PROCESSING_ERROR"; threadId: string; error: string };
 
 export class MessageRouter {
-  constructor(
-    private readonly workerManager: WorkerManager,
-    private readonly rateLimitManager: RateLimitManager,
-    private readonly verbose = false,
-  ) {}
+  constructor(private readonly workerManager: WorkerManager) {}
 
   async routeMessage(
     threadId: string,
@@ -51,9 +46,6 @@ export class MessageRouter {
           "リポジトリが設定されていません。/start でリポジトリを指定してください。",
         );
       }
-      if (this.verbose) {
-        console.error("[MessageRouter] message processing error", error);
-      }
       return err({
         type: "MESSAGE_PROCESSING_ERROR",
         threadId,
@@ -64,9 +56,5 @@ export class MessageRouter {
     }
 
     return ok(result.value);
-  }
-
-  buildRateLimitReply(): string {
-    return this.rateLimitManager.createRateLimitMessage();
   }
 }

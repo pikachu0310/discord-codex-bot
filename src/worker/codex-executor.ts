@@ -13,8 +13,6 @@ export interface CodexCommandExecutor {
 }
 
 export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
-  constructor(private readonly verbose = false) {}
-
   async executeStreaming(
     args: string[],
     cwd: string,
@@ -23,14 +21,6 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
     onProcessStart?: (childProcess: Deno.ChildProcess) => void,
   ): Promise<Result<{ code: number; stderr: Uint8Array }, CodexExecutorError>> {
     try {
-      if (this.verbose) {
-        console.log(
-          `[${new Date().toISOString()}] [CodexExecutor] run ${CODEX.COMMAND} ${
-            JSON.stringify(args)
-          } @ ${cwd}`,
-        );
-      }
-
       const command = new Deno.Command(CODEX.COMMAND, {
         args,
         cwd,
