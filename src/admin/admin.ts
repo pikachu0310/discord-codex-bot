@@ -1,4 +1,5 @@
 import { err, ok, Result } from "neverthrow";
+import type { SavedAttachment } from "../attachments.ts";
 import type { IWorker } from "../worker/types.ts";
 import type { AdminError, DiscordMessage, IAdmin } from "./types.ts";
 import {
@@ -89,12 +90,14 @@ export class Admin implements IAdmin {
   async routeMessage(
     threadId: string,
     message: string,
+    attachments: readonly SavedAttachment[] = [],
     onProgress?: (content: string) => Promise<void>,
     onReaction?: (emoji: string) => Promise<void>,
   ): Promise<Result<string | DiscordMessage, AdminError>> {
     const result = await this.messageRouter.routeMessage(
       threadId,
       message,
+      attachments,
       onProgress,
       onReaction,
     );

@@ -1,4 +1,9 @@
 import { err, ok, Result } from "neverthrow";
+import {
+  formatPromptWithAttachments,
+  getCodexImagePaths,
+  type SavedAttachment,
+} from "../attachments.ts";
 import { GitRepository } from "../git-utils.ts";
 import { MESSAGES, PROCESS } from "../constants.ts";
 import { splitIntoDiscordChunks } from "../utils/discord-message.ts";
@@ -39,6 +44,7 @@ export class Worker implements IWorker {
 
   async processMessage(
     message: string,
+    attachments: readonly SavedAttachment[] = [],
     onProgress: (content: string) => Promise<void> = async () => {},
     onReaction?: (emoji: string) => Promise<void>,
   ): Promise<Result<string, WorkerError>> {
@@ -61,7 +67,7 @@ export class Worker implements IWorker {
     let finalResult = "";
     let pendingBuffer = "";
 
-    const args = this.buildExecutionArgs(message);
+    const args = this.buildExecutionArgs(message, attachments);
     const onData = (chunk: Uint8Array) => {
       const text = new TextDecoder().decode(chunk, { stream: true });
       allOutput += text;
@@ -193,9 +199,22 @@ export class Worker implements IWorker {
     }
   }
 
-  private buildExecutionArgs(prompt: string): string[] {
+  private buildExecutionArgs(
+    prompt: string,
+    attachments: readonly SavedAttachment[] = [],
+  ): string[] {
+    const promptWithAttachments = formatPromptWithAttachments(
+      prompt,
+      attachments,
+    );
+    const imagePaths = getCodexImagePaths(attachments);
+
     if (!this.isPlanMode()) {
-      return this.configuration.buildCodexArgs(prompt, this.state.sessionId);
+      return this.configuration.buildCodexArgs(
+        promptWithAttachments,
+        this.state.sessionId,
+        imagePaths,
+      );
     }
 
     const planPrompt = [
@@ -203,9 +222,13 @@ export class Worker implements IWorker {
       "Return an implementation plan before coding.",
       "If coding is needed, include clear ordered steps.",
       "",
-      prompt,
+      promptWithAttachments,
     ].join("\n");
-    return this.configuration.buildCodexArgs(planPrompt, this.state.sessionId);
+    return this.configuration.buildCodexArgs(
+      planPrompt,
+      this.state.sessionId,
+      imagePaths,
+    );
   }
 
   getName(): string {

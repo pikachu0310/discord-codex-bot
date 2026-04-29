@@ -1,5 +1,11 @@
 import { ensureDir } from "std/fs/mod.ts";
 import { join } from "std/path/mod.ts";
+import {
+  type AttachmentDownloadInput,
+  isCodexImageAttachment,
+  sanitizeAttachmentFileName,
+  type SavedAttachment,
+} from "../attachments.ts";
 import { createWorktreeCopy, isWorktreeCopyExists } from "../git-utils.ts";
 
 export interface ThreadInfo {
@@ -52,6 +58,7 @@ interface WorkspaceConfig {
   adminDir: string;
   sessionsDir: string;
   auditDir: string;
+  attachmentsDir: string;
 }
 
 export class WorkspaceManager {
@@ -67,6 +74,7 @@ export class WorkspaceManager {
       adminDir: join(baseDir, "admin"),
       sessionsDir: join(baseDir, "sessions"),
       auditDir: join(baseDir, "audit"),
+      attachmentsDir: join(baseDir, "attachments"),
     };
   }
 
@@ -78,6 +86,7 @@ export class WorkspaceManager {
     await ensureDir(this.config.adminDir);
     await ensureDir(this.config.sessionsDir);
     await ensureDir(this.config.auditDir);
+    await ensureDir(this.config.attachmentsDir);
   }
 
   getBaseDir(): string {
@@ -94,6 +103,69 @@ export class WorkspaceManager {
 
   getWorktreePath(threadId: string): string {
     return join(this.config.worktreesDir, threadId);
+  }
+
+  getAttachmentsDir(): string {
+    return this.config.attachmentsDir;
+  }
+
+  getMessageAttachmentsDir(threadId: string, messageId: string): string {
+    return join(this.config.attachmentsDir, threadId, messageId);
+  }
+
+  async saveMessageAttachments(
+    threadId: string,
+    messageId: string,
+    attachments: readonly AttachmentDownloadInput[],
+  ): Promise<SavedAttachment[]> {
+    if (attachments.length === 0) {
+      return [];
+    }
+
+    const dir = this.getMessageAttachmentsDir(threadId, messageId);
+    await ensureDir(dir);
+
+    const savedAttachments: SavedAttachment[] = [];
+    for (let index = 0; index < attachments.length; index++) {
+      const attachment = attachments[index];
+      const originalName = attachment.name ?? `attachment-${index + 1}`;
+      const safeName = sanitizeAttachmentFileName(originalName);
+      const safeId = sanitizeAttachmentFileName(attachment.id);
+      const savedName = `${
+        String(index + 1).padStart(3, "0")
+      }_${safeId}_${safeName}`;
+      const path = join(dir, savedName);
+
+      const response = await fetch(attachment.url);
+      if (!response.ok) {
+        throw new Error(
+          `Attachment download failed: ${attachment.url} (${response.status})`,
+        );
+      }
+      if (!response.body) {
+        throw new Error(`Attachment response has no body: ${attachment.url}`);
+      }
+
+      await Deno.writeFile(path, response.body);
+
+      savedAttachments.push({
+        id: attachment.id,
+        originalName,
+        savedName,
+        path,
+        contentType: attachment.contentType,
+        size: attachment.size,
+        url: attachment.url,
+        isImage: isCodexImageAttachment(originalName, attachment.contentType),
+      });
+    }
+
+    await Deno.writeTextFile(
+      join(dir, "attachments.json"),
+      JSON.stringify(savedAttachments, null, 2),
+    );
+
+    return savedAttachments;
   }
 
   async ensureWorktree(

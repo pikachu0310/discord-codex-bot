@@ -1,3 +1,5 @@
+import type { SavedAttachment } from "../attachments.ts";
+
 export type WorkerError =
   | { type: "REPOSITORY_NOT_SET" }
   | { type: "CODEX_EXECUTION_FAILED"; error: string }
@@ -17,6 +19,7 @@ export type CodexExecutorError =
 export interface IWorker {
   processMessage(
     message: string,
+    attachments?: readonly SavedAttachment[],
     onProgress?: (content: string) => Promise<void>,
     onReaction?: (emoji: string) => Promise<void>,
   ): Promise<import("neverthrow").Result<string, WorkerError>>;

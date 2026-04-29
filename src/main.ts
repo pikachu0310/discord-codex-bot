@@ -12,6 +12,11 @@ import {
   ThreadAutoArchiveDuration,
   ThreadChannel,
 } from "discord.js";
+import type { Message } from "discord.js";
+import type {
+  AttachmentDownloadInput,
+  SavedAttachment,
+} from "./attachments.ts";
 import { Admin } from "./admin/admin.ts";
 import { MESSAGES } from "./constants.ts";
 import { getEnv } from "./env.ts";
@@ -26,6 +31,18 @@ import { WorkspaceManager } from "./workspace/workspace.ts";
 
 function chunkDiscordContent(content: string): string[] {
   return splitIntoDiscordChunks(content).filter((chunk) => chunk.length > 0);
+}
+
+function getAttachmentDownloadInputs(
+  message: Message,
+): AttachmentDownloadInput[] {
+  return Array.from(message.attachments.values()).map((attachment) => ({
+    id: attachment.id,
+    name: attachment.name,
+    url: attachment.url,
+    contentType: attachment.contentType,
+    size: attachment.size,
+  }));
 }
 
 const DEFAULT_THREAD_NAME_PATTERN = /^[\w.-]+\/[\w.-]+-\d+$/;
@@ -310,9 +327,31 @@ client.on(Events.MessageCreate, async (message) => {
     await message.react(emoji).catch(() => {});
   };
 
+  const attachmentInputs = getAttachmentDownloadInputs(message);
+  let savedAttachments: SavedAttachment[] = [];
+  if (attachmentInputs.length > 0) {
+    await onProgress(
+      `📎 添付ファイル ${attachmentInputs.length} 件を保存しています...`,
+    );
+    try {
+      savedAttachments = await workspaceManager.saveMessageAttachments(
+        threadId,
+        message.id,
+        attachmentInputs,
+      );
+      await onReaction("📎");
+    } catch (error) {
+      await message.channel.send(
+        `添付ファイルの保存に失敗しました: ${(error as Error).message}`,
+      );
+      return;
+    }
+  }
+
   const result = await admin.routeMessage(
     threadId,
     message.content,
+    savedAttachments,
     onProgress,
     onReaction,
   );

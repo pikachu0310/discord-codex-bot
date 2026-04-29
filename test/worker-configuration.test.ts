@@ -25,3 +25,35 @@ Deno.test("WorkerConfiguration: resumeあり引数を組み立てる", () => {
   assertEquals(args[resumeIndex + 1], "session-1");
   assertEquals(args.at(-1), "prompt");
 });
+
+Deno.test("WorkerConfiguration: 新規実行に画像添付を渡せる", () => {
+  const config = new WorkerConfiguration();
+  const args = config.buildCodexArgs("prompt", null, [
+    "/tmp/image-1.png",
+    "/tmp/image-2.jpg",
+  ]);
+
+  assertEquals(args.slice(-5), [
+    "--image",
+    "/tmp/image-1.png",
+    "--image",
+    "/tmp/image-2.jpg",
+    "prompt",
+  ]);
+});
+
+Deno.test("WorkerConfiguration: resume実行に画像添付を渡せる", () => {
+  const config = new WorkerConfiguration();
+  const args = config.buildCodexArgs("prompt", "session-1", [
+    "/tmp/image.png",
+  ]);
+
+  const resumeIndex = args.indexOf("resume");
+  assertEquals(args.slice(resumeIndex), [
+    "resume",
+    "--image",
+    "/tmp/image.png",
+    "session-1",
+    "prompt",
+  ]);
+});
