@@ -14,6 +14,16 @@ Deno.test("CodexStreamProcessor: セッションIDを抽出できる", () => {
   assertEquals(parsed.sessionId, "s1");
 });
 
+Deno.test("CodexStreamProcessor: thread_idをセッションIDとして抽出できる", () => {
+  const processor = new CodexStreamProcessor();
+  const parsed = processor.parseLine(JSON.stringify({
+    type: "thread.started",
+    thread_id: "019dd88b-3a4d-7233-b59a-386b0710fadd",
+  }));
+
+  assertEquals(parsed.sessionId, "019dd88b-3a4d-7233-b59a-386b0710fadd");
+});
+
 Deno.test("CodexStreamProcessor: レート制限時刻を抽出できる", () => {
   const ts = extractRateLimitTimestamp(
     "Codex AI usage limit reached|1710000000",
@@ -50,4 +60,18 @@ Deno.test("CodexStreamProcessor: assistant end_turnから最終テキストを�
 
   assertEquals(parsed.finalText, "ユーザーに見せる返信です。");
   assertEquals(parsed.text, undefined);
+});
+
+Deno.test("CodexStreamProcessor: item.completed agent_messageから最終テキストを抽出できる", () => {
+  const processor = new CodexStreamProcessor();
+  const parsed = processor.parseLine(JSON.stringify({
+    type: "item.completed",
+    item: {
+      id: "item_0",
+      type: "agent_message",
+      text: "OK",
+    },
+  }));
+
+  assertEquals(parsed.finalText, "OK");
 });

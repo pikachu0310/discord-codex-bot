@@ -84,6 +84,9 @@ export class CodexStreamProcessor {
     const direct = json.session_id;
     if (typeof direct === "string" && direct) return direct;
 
+    const threadId = json.thread_id;
+    if (typeof threadId === "string" && threadId) return threadId;
+
     const session = asRecord(json.session);
     if (session && typeof session.id === "string" && session.id) {
       return session.id;
@@ -108,6 +111,19 @@ export class CodexStreamProcessor {
     if (eventType === "turn.completed" || eventType === "response.completed") {
       return flattenText(json.response) || flattenText(json.result) ||
         flattenText(json.item);
+    }
+
+    if (eventType === "item.completed") {
+      const item = asRecord(json.item);
+      if (!item) return "";
+
+      if (item.type === "agent_message") {
+        return flattenText(item);
+      }
+
+      if (item.type === "message" && item.role === "assistant") {
+        return flattenText(item.content) || flattenText(item);
+      }
     }
 
     if (eventType === "assistant") {

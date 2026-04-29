@@ -59,3 +59,38 @@ Deno.test("WorkerConfiguration: resume実行に画像添付を渡せる", () => 
     "prompt",
   ]);
 });
+
+Deno.test("WorkerConfiguration: 新規実行に最終メッセージ出力先を渡せる", () => {
+  const config = new WorkerConfiguration();
+  const args = config.buildCodexArgs(
+    "prompt",
+    null,
+    [],
+    "/tmp/last-message.txt",
+  );
+
+  assertEquals(args.slice(-3), [
+    "--output-last-message",
+    "/tmp/last-message.txt",
+    "prompt",
+  ]);
+});
+
+Deno.test("WorkerConfiguration: resume実行に最終メッセージ出力先を渡せる", () => {
+  const config = new WorkerConfiguration();
+  const args = config.buildCodexArgs(
+    "prompt",
+    "session-1",
+    [],
+    "/tmp/last-message.txt",
+  );
+
+  const resumeIndex = args.indexOf("resume");
+  assertEquals(args.slice(resumeIndex), [
+    "resume",
+    "--output-last-message",
+    "/tmp/last-message.txt",
+    "session-1",
+    "prompt",
+  ]);
+});

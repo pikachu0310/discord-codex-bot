@@ -66,8 +66,16 @@ export class Worker implements IWorker {
     let allOutput = "";
     let finalResult = "";
     let pendingBuffer = "";
+    const outputLastMessagePath = await Deno.makeTempFile({
+      prefix: "discord-codex-last-message-",
+      suffix: ".txt",
+    });
 
-    const args = this.buildExecutionArgs(message, attachments);
+    const args = this.buildExecutionArgs(
+      message,
+      attachments,
+      outputLastMessagePath,
+    );
     const onData = (chunk: Uint8Array) => {
       const text = new TextDecoder().decode(chunk, { stream: true });
       allOutput += text;
@@ -159,6 +167,10 @@ export class Worker implements IWorker {
         this.state.sessionId = newSessionId;
       }
 
+      if (!finalResult.trim()) {
+        finalResult = await this.readOutputLastMessage(outputLastMessagePath);
+      }
+
       await this.sessionLogger.saveRawJsonlOutput(
         this.state.repository.fullName,
         this.state.sessionId ?? undefined,
@@ -196,12 +208,14 @@ export class Worker implements IWorker {
       this.isExecuting = false;
       this.abortController = null;
       this.codexProcess = null;
+      await Deno.remove(outputLastMessagePath).catch(() => {});
     }
   }
 
   private buildExecutionArgs(
     prompt: string,
     attachments: readonly SavedAttachment[] = [],
+    outputLastMessagePath?: string | null,
   ): string[] {
     const promptWithAttachments = formatPromptWithAttachments(
       prompt,
@@ -214,6 +228,7 @@ export class Worker implements IWorker {
         promptWithAttachments,
         this.state.sessionId,
         imagePaths,
+        outputLastMessagePath,
       );
     }
 
@@ -228,7 +243,19 @@ export class Worker implements IWorker {
       planPrompt,
       this.state.sessionId,
       imagePaths,
+      outputLastMessagePath,
     );
+  }
+
+  private async readOutputLastMessage(path: string): Promise<string> {
+    try {
+      return await Deno.readTextFile(path);
+    } catch (error) {
+      if (error instanceof Deno.errors.NotFound) {
+        return "";
+      }
+      throw error;
+    }
   }
 
   getName(): string {

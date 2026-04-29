@@ -7,6 +7,7 @@ export class WorkerConfiguration {
     prompt: string,
     sessionId?: string | null,
     imagePaths: readonly string[] = [],
+    outputLastMessagePath?: string | null,
   ): string[] {
     const args: string[] = [...CODEX.BASE_ARGS];
 
@@ -16,16 +17,27 @@ export class WorkerConfiguration {
 
     if (sessionId) {
       args.push("resume");
+      this.appendOutputLastMessageArg(args, outputLastMessagePath);
       this.appendImageArgs(args, imagePaths);
       this.appendOptionTerminator(args, imagePaths);
       args.push(sessionId, prompt);
       return args;
     }
 
+    this.appendOutputLastMessageArg(args, outputLastMessagePath);
     this.appendImageArgs(args, imagePaths);
     this.appendOptionTerminator(args, imagePaths);
     args.push(prompt);
     return args;
+  }
+
+  private appendOutputLastMessageArg(
+    args: string[],
+    outputLastMessagePath?: string | null,
+  ): void {
+    if (outputLastMessagePath) {
+      args.push("--output-last-message", outputLastMessagePath);
+    }
   }
 
   private appendImageArgs(args: string[], imagePaths: readonly string[]): void {
