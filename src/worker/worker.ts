@@ -99,7 +99,6 @@ export class Worker implements IWorker {
 
         if (parsed.finalText) {
           finalResult = parsed.finalText;
-          continue;
         }
 
         if (parsed.text) {

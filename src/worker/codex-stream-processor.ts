@@ -25,6 +25,7 @@ function flattenText(value: unknown): string {
   const direct = [
     obj.text,
     obj.text_delta,
+    obj.summary_text,
     obj.output_text,
     obj.stdout,
     obj.stderr,
@@ -34,7 +35,7 @@ function flattenText(value: unknown): string {
     .join("\n");
   if (direct) return direct;
 
-  return [obj.content, obj.delta, obj.command_output, obj.message]
+  return [obj.content, obj.delta, obj.command_output, obj.message, obj.summary]
     .map((item) => flattenText(item))
     .filter(Boolean)
     .join("\n");

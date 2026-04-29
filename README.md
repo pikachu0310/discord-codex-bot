@@ -178,6 +178,11 @@ codex --search exec --json --color never --dangerously-bypass-approvals-and-sand
 が追加されます。`CODEX_APPEND_SYSTEM_PROMPT` を設定している場合は
 `--append-system-prompt` も追加されます。
 
+Bot は `--model` や `model_reasoning_effort` を指定しません。モデル、reasoning
+effort、profile などの Codex CLI 設定は、Bot を起動するユーザーの Codex CLI
+設定に従います。通常は `$CODEX_HOME/config.toml` または `~/.codex/config.toml`
+を確認してください。
+
 この Bot は Codex を自動実行するため、Bot
 専用の実行ユーザーと作業ディレクトリを用意することを推奨します。
 
