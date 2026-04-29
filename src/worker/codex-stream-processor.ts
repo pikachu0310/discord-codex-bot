@@ -102,10 +102,25 @@ export class CodexStreamProcessor {
 
   private extractFinalText(json: Record<string, unknown>): string {
     const eventType = typeof json.type === "string" ? json.type : "";
+    if (eventType === "result") {
+      return flattenText(json.result);
+    }
     if (eventType === "turn.completed" || eventType === "response.completed") {
       return flattenText(json.response) || flattenText(json.result) ||
         flattenText(json.item);
     }
+
+    if (eventType === "assistant") {
+      const message = asRecord(json.message);
+      if (
+        message?.role === "assistant" &&
+        typeof message.stop_reason === "string" &&
+        message.stop_reason === "end_turn"
+      ) {
+        return flattenText(message.content);
+      }
+    }
+
     return "";
   }
 }

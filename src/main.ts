@@ -249,7 +249,9 @@ async function handleStart(interaction: ChatInputCommandInteraction) {
     : `${repository.fullName}を新規取得しました。`;
 
   await interaction.editReply(`${message}\nスレッド: ${thread.toString()}`);
-  await thread.send("準備が完了しました。指示を送信してください。");
+  await thread.send(
+    `こんにちは！ 準備バッチリだよ！ ${repository.fullName} について何でも聞いてね～！`,
+  );
 }
 
 client.on(Events.ThreadUpdate, async (oldThread, newThread) => {
