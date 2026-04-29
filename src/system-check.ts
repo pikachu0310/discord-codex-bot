@@ -157,7 +157,9 @@ export function formatSystemCheckResults(
     lines.push("");
     lines.push("インストール方法:");
     lines.push("  - Git: https://git-scm.com/downloads");
-    lines.push("  - Codex CLI: https://docs.anthropic.com/en/docs/codex-code");
+    lines.push(
+      "  - Codex CLI: https://help.openai.com/en/articles/11096431-openai-codex-ci-getting-started",
+    );
   }
 
   return lines.join("\n");
