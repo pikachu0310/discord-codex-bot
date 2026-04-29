@@ -17,11 +17,13 @@ export class WorkerConfiguration {
     if (sessionId) {
       args.push("resume");
       this.appendImageArgs(args, imagePaths);
+      this.appendOptionTerminator(args, imagePaths);
       args.push(sessionId, prompt);
       return args;
     }
 
     this.appendImageArgs(args, imagePaths);
+    this.appendOptionTerminator(args, imagePaths);
     args.push(prompt);
     return args;
   }
@@ -29,6 +31,15 @@ export class WorkerConfiguration {
   private appendImageArgs(args: string[], imagePaths: readonly string[]): void {
     for (const path of imagePaths) {
       args.push("--image", path);
+    }
+  }
+
+  private appendOptionTerminator(
+    args: string[],
+    imagePaths: readonly string[],
+  ): void {
+    if (imagePaths.length > 0) {
+      args.push("--");
     }
   }
 }

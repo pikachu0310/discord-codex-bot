@@ -33,11 +33,12 @@ Deno.test("WorkerConfiguration: 新規実行に画像添付を渡せる", () => 
     "/tmp/image-2.jpg",
   ]);
 
-  assertEquals(args.slice(-5), [
+  assertEquals(args.slice(-6), [
     "--image",
     "/tmp/image-1.png",
     "--image",
     "/tmp/image-2.jpg",
+    "--",
     "prompt",
   ]);
 });
@@ -53,6 +54,7 @@ Deno.test("WorkerConfiguration: resume実行に画像添付を渡せる", () => 
     "resume",
     "--image",
     "/tmp/image.png",
+    "--",
     "session-1",
     "prompt",
   ]);
