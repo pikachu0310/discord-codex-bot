@@ -1,5 +1,5 @@
 import { ensureDir } from "std/fs/mod.ts";
-import { join } from "std/path/mod.ts";
+import { join, resolve } from "std/path/mod.ts";
 import {
   type AttachmentDownloadInput,
   isCodexImageAttachment,
@@ -59,22 +59,25 @@ interface WorkspaceConfig {
   sessionsDir: string;
   auditDir: string;
   attachmentsDir: string;
+  tempDir: string;
 }
 
 export class WorkspaceManager {
   private readonly config: WorkspaceConfig;
 
   constructor(baseDir: string) {
+    const resolvedBaseDir = resolve(baseDir);
     this.config = {
-      baseDir,
-      repositoriesDir: join(baseDir, "repositories"),
-      worktreesDir: join(baseDir, "worktrees"),
-      threadsDir: join(baseDir, "threads"),
-      workersDir: join(baseDir, "workers"),
-      adminDir: join(baseDir, "admin"),
-      sessionsDir: join(baseDir, "sessions"),
-      auditDir: join(baseDir, "audit"),
-      attachmentsDir: join(baseDir, "attachments"),
+      baseDir: resolvedBaseDir,
+      repositoriesDir: join(resolvedBaseDir, "repositories"),
+      worktreesDir: join(resolvedBaseDir, "worktrees"),
+      threadsDir: join(resolvedBaseDir, "threads"),
+      workersDir: join(resolvedBaseDir, "workers"),
+      adminDir: join(resolvedBaseDir, "admin"),
+      sessionsDir: join(resolvedBaseDir, "sessions"),
+      auditDir: join(resolvedBaseDir, "audit"),
+      attachmentsDir: join(resolvedBaseDir, "attachments"),
+      tempDir: join(resolvedBaseDir, "temp"),
     };
   }
 
@@ -87,6 +90,7 @@ export class WorkspaceManager {
     await ensureDir(this.config.sessionsDir);
     await ensureDir(this.config.auditDir);
     await ensureDir(this.config.attachmentsDir);
+    await ensureDir(this.config.tempDir);
   }
 
   getBaseDir(): string {
@@ -107,6 +111,22 @@ export class WorkspaceManager {
 
   getAttachmentsDir(): string {
     return this.config.attachmentsDir;
+  }
+
+  getTempDir(): string {
+    return this.config.tempDir;
+  }
+
+  async createTempFile(options: {
+    prefix?: string;
+    suffix?: string;
+  } = {}): Promise<string> {
+    await ensureDir(this.config.tempDir);
+    return await Deno.makeTempFile({
+      dir: this.config.tempDir,
+      prefix: options.prefix,
+      suffix: options.suffix,
+    });
   }
 
   getMessageAttachmentsDir(threadId: string, messageId: string): string {

@@ -152,6 +152,7 @@ WORK_BASE_DIR/
 ├── admin/          # Admin 状態
 ├── sessions/       # Codex の生 JSONL 出力
 ├── attachments/    # Discord 添付ファイル
+├── temp/           # Codex CLI に渡す一時ファイル
 └── audit/          # 監査ログ
 ```
 

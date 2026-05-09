@@ -1,11 +1,20 @@
 import { assertEquals, assertExists } from "std/assert/mod.ts";
+import { dirname, fromFileUrl } from "std/path/mod.ts";
 import {
   type WorkerState,
   WorkspaceManager,
 } from "../src/workspace/workspace.ts";
 
+const testRoot = dirname(fromFileUrl(import.meta.url));
+const fixtureRoot = `${testRoot}/fixtures`;
+
+async function createTestDir(prefix: string): Promise<string> {
+  await Deno.mkdir(fixtureRoot, { recursive: true });
+  return await Deno.makeTempDir({ dir: fixtureRoot, prefix });
+}
+
 Deno.test("WorkspaceManager: worker state を保存・読み込みできる", async () => {
-  const baseDir = await Deno.makeTempDir({ prefix: "workspace_test_" });
+  const baseDir = await createTestDir("workspace_test_");
   try {
     const manager = new WorkspaceManager(baseDir);
     await manager.initialize();
@@ -33,7 +42,7 @@ Deno.test("WorkspaceManager: worker state を保存・読み込みできる", as
 Deno.test(
   "WorkspaceManager: thread info は初回メッセージ関連フィールドを補完する",
   async () => {
-    const baseDir = await Deno.makeTempDir({ prefix: "workspace_test_" });
+    const baseDir = await createTestDir("workspace_test_");
     try {
       const manager = new WorkspaceManager(baseDir);
       await manager.initialize();
@@ -59,7 +68,7 @@ Deno.test(
 );
 
 Deno.test("WorkspaceManager: 添付ファイルをメッセージ単位で保存できる", async () => {
-  const baseDir = await Deno.makeTempDir({ prefix: "workspace_test_" });
+  const baseDir = await createTestDir("workspace_test_");
   try {
     const manager = new WorkspaceManager(baseDir);
     await manager.initialize();
@@ -91,6 +100,33 @@ Deno.test("WorkspaceManager: 添付ファイルをメッセージ単位で保存
     }/attachments.json`;
     assertExists(await Deno.stat(metadataPath));
   } finally {
+    await Deno.remove(baseDir, { recursive: true });
+  }
+});
+
+Deno.test("WorkspaceManager: 一時ファイルはWORK_BASE_DIR配下に作成する", async () => {
+  const baseDir = await createTestDir("workspace_test_");
+  const originalTmpDir = Deno.env.get("TMPDIR");
+  try {
+    const manager = new WorkspaceManager(baseDir);
+    await manager.initialize();
+
+    Deno.env.set("TMPDIR", "tmpfile");
+    const tempPath = await manager.createTempFile({
+      prefix: "last-message-",
+      suffix: ".txt",
+    });
+
+    assertEquals(tempPath.startsWith(`${manager.getTempDir()}/`), true);
+    await Deno.writeTextFile(tempPath, "ok");
+    assertEquals(await Deno.readTextFile(tempPath), "ok");
+    await Deno.remove(tempPath);
+  } finally {
+    if (originalTmpDir === undefined) {
+      Deno.env.delete("TMPDIR");
+    } else {
+      Deno.env.set("TMPDIR", originalTmpDir);
+    }
     await Deno.remove(baseDir, { recursive: true });
   }
 });

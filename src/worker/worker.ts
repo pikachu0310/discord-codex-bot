@@ -66,16 +66,8 @@ export class Worker implements IWorker {
     let allOutput = "";
     let finalResult = "";
     let pendingBuffer = "";
-    const outputLastMessagePath = await Deno.makeTempFile({
-      prefix: "discord-codex-last-message-",
-      suffix: ".txt",
-    });
+    let outputLastMessagePath: string | null = null;
 
-    const args = this.buildExecutionArgs(
-      message,
-      attachments,
-      outputLastMessagePath,
-    );
     const onData = (chunk: Uint8Array) => {
       const text = new TextDecoder().decode(chunk, { stream: true });
       allOutput += text;
@@ -112,6 +104,17 @@ export class Worker implements IWorker {
     };
 
     try {
+      outputLastMessagePath = await this.workspaceManager.createTempFile({
+        prefix: "discord-codex-last-message-",
+        suffix: ".txt",
+      });
+
+      const args = this.buildExecutionArgs(
+        message,
+        attachments,
+        outputLastMessagePath,
+      );
+
       const execResult = await this.codexExecutor.executeStreaming(
         args,
         this.state.worktreePath,
@@ -207,7 +210,9 @@ export class Worker implements IWorker {
       this.isExecuting = false;
       this.abortController = null;
       this.codexProcess = null;
-      await Deno.remove(outputLastMessagePath).catch(() => {});
+      if (outputLastMessagePath) {
+        await Deno.remove(outputLastMessagePath).catch(() => {});
+      }
     }
   }
 
