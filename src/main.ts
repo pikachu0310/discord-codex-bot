@@ -30,7 +30,9 @@ import { splitIntoDiscordChunks } from "./utils/discord-message.ts";
 import { WorkspaceManager } from "./workspace/workspace.ts";
 
 function chunkDiscordContent(content: string): string[] {
-  return splitIntoDiscordChunks(content).filter((chunk) => chunk.length > 0);
+  return splitIntoDiscordChunks(content).filter((chunk) =>
+    chunk.trim().length > 0
+  );
 }
 
 function getAttachmentDownloadInputs(
@@ -375,19 +377,16 @@ client.on(Events.MessageCreate, async (message) => {
   }
 
   const reply = result.value;
-  if (typeof reply === "string") {
-    const finalReply = reply.trim() === MESSAGES.NO_FINAL_RESPONSE &&
-        lastProgressMessageUrl
-      ? `Codexの最終テキストを取得できなかったため、直近の出力を参照してください。\n> ${lastProgressMessageUrl}`
-      : reply;
-    const chunks = chunkDiscordContent(finalReply);
-    if (chunks.length === 0) return;
-    await message.reply(chunks[0]);
-    for (const chunk of chunks.slice(1)) {
-      await message.channel.send(chunk);
-    }
-  } else {
-    await message.reply(reply.content);
+  const replyContent = typeof reply === "string" ? reply : reply.content;
+  const finalReply = replyContent.trim() === MESSAGES.NO_FINAL_RESPONSE &&
+      lastProgressMessageUrl
+    ? `Codexの最終テキストを取得できなかったため、直近の出力を参照してください。\n> ${lastProgressMessageUrl}`
+    : replyContent;
+  const chunks = chunkDiscordContent(finalReply);
+  if (chunks.length === 0) return;
+  await message.reply(chunks[0]);
+  for (const chunk of chunks.slice(1)) {
+    await message.channel.send(chunk);
   }
 });
 

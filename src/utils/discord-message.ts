@@ -2,6 +2,10 @@ import { DISCORD } from "../constants.ts";
 
 const CODE_BLOCK_REGEX = /```[\s\S]*?```/g;
 
+function isSendableDiscordContent(content: string): boolean {
+  return content.trim().length > 0;
+}
+
 function splitTextSegment(
   text: string,
   chunkSize: number,
@@ -29,7 +33,7 @@ function splitTextSegment(
       start = end;
     }
 
-    if (slice.length > 0) {
+    if (isSendableDiscordContent(slice)) {
       pieces.push(slice);
     }
   }
@@ -57,7 +61,10 @@ function splitCodeBlockSegment(
 
   if (body.length <= perChunkLimit) {
     const bodyWithNewline = body.endsWith("\n") ? body : `${body}\n`;
-    pieces.push(`${header}\n${bodyWithNewline}\`\`\``);
+    const chunk = `${header}\n${bodyWithNewline}\`\`\``;
+    if (isSendableDiscordContent(chunk)) {
+      pieces.push(chunk);
+    }
     return pieces;
   }
 
@@ -82,7 +89,10 @@ function splitCodeBlockSegment(
       slice = `${slice}\n`;
     }
 
-    pieces.push(`${header}\n${slice}\`\`\``);
+    const chunk = `${header}\n${slice}\`\`\``;
+    if (isSendableDiscordContent(chunk)) {
+      pieces.push(chunk);
+    }
   }
 
   return pieces;
@@ -92,7 +102,7 @@ export function splitIntoDiscordChunks(
   content: string,
   chunkSize: number = DISCORD.MESSAGE_CHUNK_LENGTH,
 ): string[] {
-  if (content.length === 0) {
+  if (!isSendableDiscordContent(content)) {
     return [];
   }
 
