@@ -1,4 +1,12 @@
+const LOCATION_PREVIEW_LENGTH = 10;
 const MESSAGE_PREVIEW_LENGTH = 20;
+
+export function createLocationPreview(name: string): string {
+  return name
+    .slice(0, LOCATION_PREVIEW_LENGTH)
+    .replaceAll("\r", "\\r")
+    .replaceAll("\n", "\\n");
+}
 
 export function createMessagePreview(content: string): string {
   return content
@@ -13,7 +21,7 @@ export function formatDiscordSendLog(
   threadName: string,
   content: string,
 ): string {
-  return `${serverName}/${channelName}/${threadName}「${
-    createMessagePreview(content)
-  }」`;
+  return `${createLocationPreview(serverName)}/${
+    createLocationPreview(channelName)
+  }/${createLocationPreview(threadName)}「${createMessagePreview(content)}」`;
 }
