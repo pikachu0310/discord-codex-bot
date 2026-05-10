@@ -27,6 +27,7 @@ import {
   formatSystemCheckResults,
 } from "./system-check.ts";
 import { generateThreadNameWithCodex } from "./thread-namer.ts";
+import { formatDiscordSendLog } from "./utils/discord-log.ts";
 import { splitIntoDiscordChunks } from "./utils/discord-message.ts";
 import { WorkspaceManager } from "./workspace/workspace.ts";
 
@@ -46,6 +47,46 @@ function getAttachmentDownloadInputs(
     contentType: attachment.contentType,
     size: attachment.size,
   }));
+}
+
+function getThreadSendContent(payload: Parameters<ThreadChannel["send"]>[0]) {
+  if (typeof payload === "string") {
+    return payload;
+  }
+  if (
+    payload && typeof payload === "object" && "content" in payload &&
+    typeof payload.content === "string"
+  ) {
+    return payload.content;
+  }
+  return "";
+}
+
+function logThreadSend(thread: ThreadChannel, content: string) {
+  const channelName = thread.parent?.name ?? "-";
+  console.log(formatDiscordSendLog(
+    thread.guild.name,
+    channelName,
+    thread.name,
+    content,
+  ));
+}
+
+async function sendThreadMessage(
+  thread: ThreadChannel,
+  payload: Parameters<ThreadChannel["send"]>[0],
+) {
+  const sent = await thread.send(payload);
+  logThreadSend(thread, getThreadSendContent(payload));
+  return sent;
+}
+
+async function replyToThreadMessage(message: Message, content: string) {
+  const sent = await message.reply(content);
+  if (message.channel.isThread()) {
+    logThreadSend(message.channel as ThreadChannel, content);
+  }
+  return sent;
 }
 
 const DEFAULT_THREAD_NAME_PATTERN = /^[\w.-]+\/[\w.-]+-\d+$/;
@@ -264,7 +305,7 @@ async function handleActiveThreads(interaction: ChatInputCommandInteraction) {
         continue;
       }
 
-      await channel.send({
+      await sendThreadMessage(channel, {
         content: `${mention} active thread check`,
         allowedMentions: { users: [interaction.user.id] },
         flags: MessageFlags.SuppressNotifications,
@@ -342,7 +383,8 @@ async function handleStart(interaction: ChatInputCommandInteraction) {
     : `${repository.fullName}を新規取得しました。`;
 
   await interaction.editReply(`${message}\nスレッド: ${thread.toString()}`);
-  await thread.send(
+  await sendThreadMessage(
+    thread,
     `こんにちは！ 準備バッチリだよ！ ${repository.fullName} について何でも聞いてね～！`,
   );
 }
@@ -358,6 +400,7 @@ client.on(Events.ThreadUpdate, async (oldThread, newThread) => {
 client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot) return;
   if (!message.channel.isThread()) return;
+  if (message.content.startsWith("!")) return;
 
   const thread = message.channel as ThreadChannel;
   const threadId = thread.id;
@@ -393,7 +436,7 @@ client.on(Events.MessageCreate, async (message) => {
   let lastProgressMessageUrl: string | null = null;
   const onProgress = async (content: string) => {
     for (const chunk of chunkDiscordContent(content)) {
-      const sent = await message.channel.send({
+      const sent = await sendThreadMessage(thread, {
         content: chunk,
         flags: MessageFlags.SuppressNotifications,
       });
@@ -419,7 +462,8 @@ client.on(Events.MessageCreate, async (message) => {
       );
       await onReaction("📎");
     } catch (error) {
-      await message.channel.send(
+      await sendThreadMessage(
+        thread,
         `添付ファイルの保存に失敗しました: ${(error as Error).message}`,
       );
       return;
@@ -438,17 +482,18 @@ client.on(Events.MessageCreate, async (message) => {
     if (result.error.type === "WORKER_NOT_FOUND") {
       const threadInfo = await workspaceManager.loadThreadInfo(threadId);
       if (threadInfo) {
-        await message.channel.send(
+        await sendThreadMessage(
+          thread,
           "このスレッドはアクティブではありません。/start で新規に開始してください。",
         );
       }
       return;
     }
     if (result.error.type === "RATE_LIMIT") {
-      await message.channel.send(admin.createRateLimitMessage());
+      await sendThreadMessage(thread, admin.createRateLimitMessage());
       return;
     }
-    await message.channel.send(`エラー: ${result.error.type}`);
+    await sendThreadMessage(thread, `エラー: ${result.error.type}`);
     return;
   }
 
@@ -460,9 +505,9 @@ client.on(Events.MessageCreate, async (message) => {
     : replyContent;
   const chunks = chunkDiscordContent(finalReply);
   if (chunks.length === 0) return;
-  await message.reply(chunks[0]);
+  await replyToThreadMessage(message, chunks[0]);
   for (const chunk of chunks.slice(1)) {
-    await message.channel.send(chunk);
+    await sendThreadMessage(thread, chunk);
   }
 });
 
