@@ -353,7 +353,9 @@ async function handleStatus(interaction: ChatInputCommandInteraction) {
     await interaction.editReply("Codex status の取得に失敗しました。");
     return;
   }
-  await interaction.editReply(formatCodexStatus(status));
+  await interaction.editReply(
+    `\`\`\`kotlin\n${formatCodexStatus(status)}\n\`\`\``,
+  );
 }
 
 async function refreshCodexStatus(

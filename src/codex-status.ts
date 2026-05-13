@@ -203,9 +203,9 @@ export function stripTerminalControlSequences(text: string): string {
 
 export function formatCodexStatus(status: CodexUsageStatus): string {
   return [
-    `5h limit ${status.fiveHour.percentLeft}% left (resets ${status.fiveHour.resets})`,
-    `Weekly limit ${status.weekly.percentLeft}% left (resets ${status.weekly.resets})`,
-  ].join(" / ");
+    `5h limit: ${status.fiveHour.percentLeft}% left (resets ${status.fiveHour.resets})`,
+    `Weekly limit: ${status.weekly.percentLeft}% left (resets ${status.weekly.resets})`,
+  ].join("\n");
 }
 
 export function formatCodexStatusPresence(status: CodexUsageStatus): string {
@@ -222,5 +222,5 @@ export function formatCodexStatusDelta(
   return [
     `5h limit ${before.fiveHour.percentLeft}% → ${after.fiveHour.percentLeft}% (resets ${after.fiveHour.resets})`,
     `Weekly limit ${before.weekly.percentLeft}% → ${after.weekly.percentLeft}% (resets ${after.weekly.resets})`,
-  ].join(" / ");
+  ].join("\n");
 }

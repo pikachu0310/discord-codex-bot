@@ -1,5 +1,6 @@
 import { assertEquals } from "std/assert/mod.ts";
 import {
+  formatCodexStatus,
   formatCodexStatusDelta,
   formatCodexStatusPresence,
   parseCodexStatus,
@@ -38,7 +39,18 @@ Deno.test("formatCodexStatusDelta: 投稿前後の差分をkotlinブロック用
 
   assertEquals(
     formatCodexStatusDelta(before, after),
-    "5h limit 80% → 68% (resets 23:57) / Weekly limit 54% → 52% (resets 18:06 on 17 May)",
+    "5h limit 80% → 68% (resets 23:57)\nWeekly limit 54% → 52% (resets 18:06 on 17 May)",
+  );
+});
+
+Deno.test("formatCodexStatus: /status向けにkotlinブロック用の2行にする", () => {
+  assertEquals(
+    formatCodexStatus({
+      fiveHour: { percentLeft: 51, resets: "23:57" },
+      weekly: { percentLeft: 80, resets: "18:06 on 17 May" },
+      capturedAt: "2026-05-13T00:00:00.000Z",
+    }),
+    "5h limit: 51% left (resets 23:57)\nWeekly limit: 80% left (resets 18:06 on 17 May)",
   );
 });
 
