@@ -360,15 +360,14 @@ export class WorkspaceManager {
     repositoryFullName: string,
     sessionId: string,
     rawJsonlContent: string,
-  ): Promise<void> {
+  ): Promise<string> {
     const [org, repo] = repositoryFullName.split("/");
     const dir = join(this.config.sessionsDir, org, repo);
     await ensureDir(dir);
     const ts = new Date().toISOString().replace(/[:.]/g, "-");
-    await Deno.writeTextFile(
-      join(dir, `${ts}_${sessionId}.jsonl`),
-      rawJsonlContent,
-    );
+    const path = join(dir, `${ts}_${sessionId}.jsonl`);
+    await Deno.writeTextFile(path, rawJsonlContent);
+    return path;
   }
 
   async getLocalRepositories(): Promise<string[]> {

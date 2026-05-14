@@ -10,18 +10,18 @@ export class SessionLogger {
     repositoryFullName?: string,
     sessionId?: string,
     output?: string,
-  ): Promise<Result<void, SessionLoggerError>> {
+  ): Promise<Result<string | null, SessionLoggerError>> {
     if (!repositoryFullName || !sessionId || !output) {
-      return ok(undefined);
+      return ok(null);
     }
 
     try {
-      await this.workspaceManager.saveRawSessionJsonl(
+      const path = await this.workspaceManager.saveRawSessionJsonl(
         repositoryFullName,
         sessionId,
         output,
       );
-      return ok(undefined);
+      return ok(path);
     } catch (error) {
       return err({
         type: "SAVE_FAILED",

@@ -22,6 +22,8 @@ class FakeCodexExecutor implements CodexCommandExecutor {
   constructor(
     private readonly lines: readonly string[],
     private readonly outputLastMessage?: string,
+    private readonly code = 0,
+    private readonly stderr = "",
   ) {}
 
   async executeStreaming(
@@ -37,7 +39,10 @@ class FakeCodexExecutor implements CodexCommandExecutor {
       const outputPath = args[outputArgIndex + 1];
       await Deno.writeTextFile(outputPath, this.outputLastMessage);
     }
-    return Promise.resolve(ok({ code: 0, stderr: new Uint8Array() }));
+    return Promise.resolve(ok({
+      code: this.code,
+      stderr: new TextEncoder().encode(this.stderr),
+    }));
   }
 }
 
@@ -103,6 +108,66 @@ Deno.test("Worker: 最終応答候補のagent_messageも進捗として送信す
     assertEquals(result._unsafeUnwrap(), "最終返信です。");
     assertEquals(progress.includes("途中ログです。"), true);
     assertEquals(progress.includes("最終返信です。"), true);
+  } finally {
+    await Deno.remove(baseDir, { recursive: true });
+    await Deno.remove(worktreePath, { recursive: true });
+  }
+});
+
+Deno.test("Worker: Codex非ゼロ終了時に診断情報を返してrawログを保存する", async () => {
+  const baseDir = await createTestDir("worker_test_");
+  const worktreePath = await createTestDir("worker_worktree_");
+  try {
+    const workspaceManager = new WorkspaceManager(baseDir);
+    await workspaceManager.initialize();
+
+    const now = new Date().toISOString();
+    const state: WorkerState = {
+      workerName: "w1",
+      threadId: "thread-1",
+      repository: {
+        fullName: "owner/repo",
+        org: "owner",
+        repo: "repo",
+      },
+      repositoryLocalPath: worktreePath,
+      worktreePath,
+      sessionId: "session-1",
+      status: "active",
+      createdAt: now,
+      lastActiveAt: now,
+    };
+
+    const executor = new FakeCodexExecutor(
+      [
+        JSON.stringify({
+          type: "item.completed",
+          item: {
+            id: "item_1",
+            type: "agent_message",
+            text: "stdout側の失敗理由です。",
+          },
+        }),
+      ],
+      "last message側の失敗理由です。",
+      1,
+      "stderr側の失敗理由です。",
+    );
+    const worker = new Worker(state, workspaceManager, executor);
+
+    const result = await worker.processMessage("依頼");
+
+    assertEquals(result.isErr(), true);
+    const error = result._unsafeUnwrapErr();
+    assertEquals(error.type, "CODEX_EXECUTION_FAILED");
+    if (error.type !== "CODEX_EXECUTION_FAILED") {
+      throw new Error("expected CODEX_EXECUTION_FAILED");
+    }
+    assertEquals(error.error.includes("終了コード: 1"), true);
+    assertEquals(error.error.includes("stderr側の失敗理由です。"), true);
+    assertEquals(error.error.includes("last message側の失敗理由です。"), true);
+    assertEquals(error.error.includes("stdout側の失敗理由です。"), true);
+    assertEquals(error.error.includes("保存ログ:"), true);
   } finally {
     await Deno.remove(baseDir, { recursive: true });
     await Deno.remove(worktreePath, { recursive: true });

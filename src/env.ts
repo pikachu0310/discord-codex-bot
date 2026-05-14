@@ -4,6 +4,7 @@ export interface Env {
   DISCORD_TOKEN: string;
   WORK_BASE_DIR: string;
   CODEX_APPEND_SYSTEM_PROMPT?: string;
+  CODEX_STATUS_TIME_ZONE?: string;
 }
 
 /**
@@ -36,6 +37,7 @@ export function getEnv(): Result<Env, EnvError> {
   const token = Deno.env.get("DISCORD_TOKEN");
   const workBaseDir = Deno.env.get("WORK_BASE_DIR");
   const codexAppendSystemPrompt = Deno.env.get("CODEX_APPEND_SYSTEM_PROMPT");
+  const codexStatusTimeZone = Deno.env.get("CODEX_STATUS_TIME_ZONE");
 
   if (!token) {
     return err({
@@ -62,5 +64,6 @@ export function getEnv(): Result<Env, EnvError> {
     DISCORD_TOKEN: token,
     WORK_BASE_DIR: expandedWorkBaseDir.value,
     CODEX_APPEND_SYSTEM_PROMPT: codexAppendSystemPrompt,
+    CODEX_STATUS_TIME_ZONE: codexStatusTimeZone,
   });
 }

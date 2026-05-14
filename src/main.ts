@@ -174,7 +174,9 @@ const admin = Admin.fromState(
   workspaceManager,
   env.CODEX_APPEND_SYSTEM_PROMPT,
 );
-const codexStatusProvider = new CodexStatusProvider();
+const codexStatusProvider = new CodexStatusProvider({
+  timeZone: env.CODEX_STATUS_TIME_ZONE,
+});
 
 const client = new Client({
   intents: [

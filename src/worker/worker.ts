@@ -12,11 +12,39 @@ import {
   type CodexCommandExecutor,
   DefaultCodexCommandExecutor,
 } from "./codex-executor.ts";
-import { CodexStreamProcessor } from "./codex-stream-processor.ts";
+import {
+  CodexStreamProcessor,
+  extractRateLimitTimestamp,
+} from "./codex-stream-processor.ts";
 import { MessageFormatter } from "./message-formatter.ts";
 import { SessionLogger } from "./session-logger.ts";
 import { WorkerConfiguration } from "./worker-configuration.ts";
 import type { IWorker, WorkerError } from "./types.ts";
+
+const DIAGNOSTIC_SECTION_LIMIT = 1800;
+const DIAGNOSTIC_TEXT_LIMIT = 5000;
+
+function redactSensitiveText(text: string): string {
+  return text
+    .replace(
+      /((?:PASS(?:WORD)?|TOKEN|SECRET|COOKIE|AUTHORIZATION|API[_-]?KEY|DISCORD_TOKEN)\s*=\s*)[^\n\r]*/gi,
+      "$1[REDACTED]",
+    )
+    .replace(
+      /(auth\[password\]\s*=\s*)[^\s"'&\\]+/gi,
+      "$1[REDACTED]",
+    )
+    .replace(
+      /(password|passwd|token|secret|api[_-]?key)(["'\]\s:=>-]+)[^"',\s&\\]+/gi,
+      "$1$2[REDACTED]",
+    );
+}
+
+function truncateDiagnostic(text: string, limit = DIAGNOSTIC_SECTION_LIMIT) {
+  const trimmed = redactSensitiveText(text).trim();
+  if (trimmed.length <= limit) return trimmed;
+  return `${trimmed.slice(-limit)}\n...前半を省略しました`;
+}
 
 export class Worker implements IWorker {
   private readonly configuration: WorkerConfiguration;
@@ -67,6 +95,7 @@ export class Worker implements IWorker {
     let finalResult = "";
     let pendingBuffer = "";
     let outputLastMessagePath: string | null = null;
+    let rateLimitTimestamp: number | undefined;
 
     const onData = (chunk: Uint8Array) => {
       const text = new TextDecoder().decode(chunk, { stream: true });
@@ -79,10 +108,7 @@ export class Worker implements IWorker {
         const parsed = this.streamProcessor.parseLine(line);
 
         if (parsed.rateLimitTimestamp !== undefined) {
-          throw {
-            type: "RATE_LIMIT_THROW",
-            timestamp: parsed.rateLimitTimestamp,
-          };
+          rateLimitTimestamp = parsed.rateLimitTimestamp;
         }
 
         if (parsed.sessionId) {
@@ -135,22 +161,42 @@ export class Worker implements IWorker {
         if (parsed.sessionId) {
           newSessionId = parsed.sessionId;
         }
+        if (parsed.rateLimitTimestamp !== undefined) {
+          rateLimitTimestamp = parsed.rateLimitTimestamp;
+        }
       }
 
       if (execResult.isErr()) {
+        if (rateLimitTimestamp !== undefined) {
+          return err({
+            type: "RATE_LIMIT",
+            timestamp: rateLimitTimestamp,
+            retryAt: rateLimitTimestamp,
+            message: "Codexのレート制限に達しました。",
+          });
+        }
+        const logPath = await this.saveRawCodexOutput(
+          allOutput,
+          newSessionId ?? this.state.sessionId,
+        );
         return err({
           type: "CODEX_EXECUTION_FAILED",
-          error: execResult.error.type === "COMMAND_EXECUTION_FAILED"
-            ? execResult.error.stderr
-            : execResult.error.error,
+          error: await this.formatCodexFailureDetail({
+            reason: execResult.error.type === "COMMAND_EXECUTION_FAILED"
+              ? execResult.error.stderr
+              : execResult.error.error,
+            rawOutput: allOutput,
+            outputLastMessagePath,
+            sessionLogPath: logPath,
+          }),
         });
       }
 
       const { code, stderr } = execResult.value;
       if (code !== 0) {
         const stderrText = new TextDecoder().decode(stderr);
-        const ts =
-          this.streamProcessor.parseLine(stderrText).rateLimitTimestamp;
+        const ts = rateLimitTimestamp ??
+          extractRateLimitTimestamp([stderrText, allOutput].join("\n"));
         if (ts !== undefined) {
           return err({
             type: "RATE_LIMIT",
@@ -159,9 +205,19 @@ export class Worker implements IWorker {
             message: "Codexのレート制限に達しました。",
           });
         }
+        const logPath = await this.saveRawCodexOutput(
+          allOutput,
+          newSessionId ?? this.state.sessionId,
+        );
         return err({
           type: "CODEX_EXECUTION_FAILED",
-          error: `Codex実行失敗 (終了コード: ${code})\n${stderrText}`,
+          error: await this.formatCodexFailureDetail({
+            exitCode: code,
+            stderr: stderrText,
+            rawOutput: allOutput,
+            outputLastMessagePath,
+            sessionLogPath: logPath,
+          }),
         });
       }
 
@@ -173,11 +229,7 @@ export class Worker implements IWorker {
         finalResult = await this.readOutputLastMessage(outputLastMessagePath);
       }
 
-      await this.sessionLogger.saveRawJsonlOutput(
-        this.state.repository.fullName,
-        this.state.sessionId ?? undefined,
-        allOutput,
-      );
+      await this.saveRawCodexOutput(allOutput, this.state.sessionId);
       await this.save();
 
       return ok(
@@ -186,25 +238,21 @@ export class Worker implements IWorker {
         ),
       );
     } catch (error) {
-      if (
-        typeof error === "object" && error !== null &&
-        "type" in error &&
-        (error as { type: string }).type === "RATE_LIMIT_THROW"
-      ) {
-        const timestamp = (error as { timestamp?: number }).timestamp;
-        return err({
-          type: "RATE_LIMIT",
-          timestamp,
-          retryAt: timestamp,
-          message: "Codexのレート制限に達しました。",
-        });
-      }
       if (error instanceof Error && error.name === "AbortError") {
         return ok("⛔ Codex実行を中断しました。");
       }
+      const logPath = await this.saveRawCodexOutput(
+        allOutput,
+        newSessionId ?? this.state.sessionId,
+      );
       return err({
         type: "CODEX_EXECUTION_FAILED",
-        error: (error as Error).message,
+        error: await this.formatCodexFailureDetail({
+          reason: error instanceof Error ? error.message : String(error),
+          rawOutput: allOutput,
+          outputLastMessagePath,
+          sessionLogPath: logPath,
+        }),
       });
     } finally {
       this.isExecuting = false;
@@ -260,6 +308,108 @@ export class Worker implements IWorker {
       }
       throw error;
     }
+  }
+
+  private async saveRawCodexOutput(
+    output: string,
+    sessionId?: string | null,
+  ): Promise<string | null> {
+    const result = await this.sessionLogger.saveRawJsonlOutput(
+      this.state.repository?.fullName,
+      sessionId ?? undefined,
+      redactSensitiveText(output),
+    );
+    if (result.isErr()) {
+      console.error(
+        "[SessionLogger] failed to save Codex output",
+        result.error,
+      );
+      return null;
+    }
+    return result.value;
+  }
+
+  private async formatCodexFailureDetail(options: {
+    exitCode?: number;
+    reason?: string;
+    stderr?: string;
+    rawOutput: string;
+    outputLastMessagePath?: string | null;
+    sessionLogPath?: string | null;
+  }): Promise<string> {
+    const lines = [
+      options.exitCode === undefined
+        ? "Codex実行失敗"
+        : `Codex実行失敗 (終了コード: ${options.exitCode})`,
+    ];
+
+    if (options.reason?.trim()) {
+      lines.push("", "理由:", truncateDiagnostic(options.reason));
+    }
+
+    if (options.stderr?.trim()) {
+      lines.push("", "stderr:", truncateDiagnostic(options.stderr));
+    }
+
+    const lastMessage = options.outputLastMessagePath
+      ? await this.readOutputLastMessage(options.outputLastMessagePath)
+      : "";
+    if (lastMessage.trim()) {
+      lines.push("", "Codex最終メッセージ:", truncateDiagnostic(lastMessage));
+    }
+
+    const diagnostic = this.extractOutputDiagnostics(options.rawOutput);
+    if (diagnostic) {
+      lines.push("", "Codex出力の手がかり:", diagnostic);
+    }
+
+    if (options.sessionLogPath) {
+      lines.push("", `保存ログ: ${options.sessionLogPath}`);
+    }
+
+    const detail = lines.join("\n").trim();
+    return detail.length <= DIAGNOSTIC_TEXT_LIMIT
+      ? detail
+      : `${
+        detail.slice(0, DIAGNOSTIC_TEXT_LIMIT)
+      }\n...詳細が長すぎるため省略しました`;
+  }
+
+  private extractOutputDiagnostics(rawOutput: string): string {
+    const snippets: string[] = [];
+    for (const line of rawOutput.split("\n")) {
+      if (!line.trim()) continue;
+      const parsed = this.streamProcessor.parseLine(line);
+      const errorText = parsed.json
+        ? this.extractJsonErrorText(parsed.json)
+        : "";
+      const text = [errorText, parsed.finalText, parsed.text]
+        .filter((item) => item && item.trim())
+        .join("\n");
+      if (text.trim()) snippets.push(text.trim());
+    }
+
+    const unique = [...new Set(snippets)].slice(-6);
+    if (unique.length === 0) return "";
+    return truncateDiagnostic(unique.join("\n---\n"));
+  }
+
+  private extractJsonErrorText(json: Record<string, unknown>): string {
+    const error = json.error;
+    if (typeof error === "string") return error;
+    if (error && typeof error === "object") {
+      const obj = error as Record<string, unknown>;
+      return [obj.message, obj.code, obj.type]
+        .filter((item) => typeof item === "string" && item)
+        .join("\n");
+    }
+
+    const type = typeof json.type === "string" ? json.type : "";
+    const message = json.message;
+    if (type.toLowerCase().includes("error") && typeof message === "string") {
+      return message;
+    }
+    return "";
   }
 
   getName(): string {

@@ -83,7 +83,7 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
       }
       return err({
         type: "STREAM_PROCESSING_ERROR",
-        error: (error as Error).message,
+        error: error instanceof Error ? error.message : String(error),
       });
     }
   }

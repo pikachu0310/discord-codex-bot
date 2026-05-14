@@ -109,6 +109,7 @@ deno task start
 ```dotenv
 DISCORD_TOKEN=your_discord_bot_token_here
 WORK_BASE_DIR=/absolute/path/to/codex-bot-work
+CODEX_STATUS_TIME_ZONE=Asia/Tokyo
 ```
 
 `WORK_BASE_DIR` は絶対パスを推奨します。`.env` 内の `~`
@@ -122,6 +123,7 @@ WORK_BASE_DIR=/absolute/path/to/codex-bot-work
 | `DISCORD_TOKEN`              | 必須 | Discord Bot Token。                                                      |
 | `WORK_BASE_DIR`              | 必須 | Bot がリポジトリ、作業コピー、スレッド状態、ログを保存するディレクトリ。 |
 | `CODEX_APPEND_SYSTEM_PROMPT` | 任意 | Codex CLI に渡す追加システムプロンプト。Bot 全体で共通適用されます。     |
+| `CODEX_STATUS_TIME_ZONE`     | 任意 | Codex limit reset 時刻の表示タイムゾーン。例: `Asia/Tokyo`。             |
 
 ## 詳しい使い方
 

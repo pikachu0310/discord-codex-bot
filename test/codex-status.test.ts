@@ -1,8 +1,10 @@
 import { assertEquals } from "std/assert/mod.ts";
 import {
+  convertCodexStatusTimeZone,
   formatCodexStatus,
   formatCodexStatusDelta,
   formatCodexStatusPresence,
+  normalizeTimeZone,
   parseCodexStatus,
   stripTerminalControlSequences,
 } from "../src/codex-status.ts";
@@ -63,6 +65,22 @@ Deno.test("formatCodexStatusPresence: Discord status向けに短く整形する"
     }),
     "5h 73% (23:57) / W 83% (18:06 on 17 May)",
   );
+});
+
+Deno.test("convertCodexStatusTimeZone: UTCのreset時刻を指定タイムゾーンへ変換する", () => {
+  const status = convertCodexStatusTimeZone({
+    fiveHour: { percentLeft: 73, resets: "23:57" },
+    weekly: { percentLeft: 83, resets: "18:06 on 17 May" },
+    capturedAt: "2026-05-17T18:00:00.000Z",
+  }, "Asia/Tokyo");
+
+  assertEquals(status.fiveHour.resets, "08:57");
+  assertEquals(status.weekly.resets, "03:06 on 18 May");
+});
+
+Deno.test("normalizeTimeZone: JST/JTCをAsia/Tokyoとして扱う", () => {
+  assertEquals(normalizeTimeZone("JST"), "Asia/Tokyo");
+  assertEquals(normalizeTimeZone("JTC"), "Asia/Tokyo");
 });
 
 Deno.test("stripTerminalControlSequences: ANSI制御シーケンスを除去する", () => {
