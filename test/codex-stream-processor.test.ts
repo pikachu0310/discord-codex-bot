@@ -96,3 +96,25 @@ Deno.test("CodexStreamProcessor: reasoning summaryを進捗テキストとして
   assertEquals(parsed.text, "実装方針を確認しています。");
   assertEquals(parsed.finalText, undefined);
 });
+
+Deno.test("CodexStreamProcessor: turn.completedのusageを抽出できる", () => {
+  const processor = new CodexStreamProcessor();
+  const parsed = processor.parseLine(JSON.stringify({
+    type: "turn.completed",
+    usage: {
+      input_tokens: 120,
+      reasoning_tokens: 30,
+      output_tokens: 45,
+      total_tokens: 195,
+      cost_usd: 0.00123,
+    },
+  }));
+
+  assertEquals(parsed.usage, {
+    inputTokens: 120,
+    processingTokens: 30,
+    outputTokens: 45,
+    totalTokens: 195,
+    costUsd: 0.00123,
+  });
+});

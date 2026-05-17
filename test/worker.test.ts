@@ -223,3 +223,71 @@ Deno.test("Worker: TMPDIRが壊れていてもWORK_BASE_DIRの一時ファイル
     await Deno.remove(worktreePath, { recursive: true });
   }
 });
+
+Deno.test("Worker: usage情報があれば最終応答末尾にトークンと料金を表示する", async () => {
+  const baseDir = await createTestDir("worker_test_");
+  const worktreePath = await createTestDir("worker_worktree_");
+  try {
+    const workspaceManager = new WorkspaceManager(baseDir);
+    await workspaceManager.initialize();
+
+    const now = new Date().toISOString();
+    const state: WorkerState = {
+      workerName: "w1",
+      threadId: "thread-1",
+      repository: {
+        fullName: "owner/repo",
+        org: "owner",
+        repo: "repo",
+      },
+      repositoryLocalPath: worktreePath,
+      worktreePath,
+      sessionId: null,
+      status: "active",
+      createdAt: now,
+      lastActiveAt: now,
+    };
+
+    const executor = new FakeCodexExecutor([
+      JSON.stringify({
+        type: "item.completed",
+        item: {
+          id: "item_0",
+          type: "agent_message",
+          text: "完了しました。",
+        },
+      }),
+      JSON.stringify({
+        type: "turn.completed",
+        usage: {
+          input_tokens: 100,
+          reasoning_tokens: 25,
+          output_tokens: 50,
+          total_tokens: 175,
+          cost_usd: 0.01,
+        },
+      }),
+    ]);
+
+    const worker = new Worker(state, workspaceManager, executor);
+    const result = await worker.processMessage("依頼");
+
+    assertEquals(result.isOk(), true);
+    assertEquals(
+      result._unsafeUnwrap(),
+      [
+        "完了しました。",
+        "",
+        "```text",
+        "トークン: 入力 100 / 処理 25 / 出力 50",
+        "合計: 175",
+        "料金： ¥2 JPY ($0.010000USD)",
+        "※ 1 USD = 160 JPY の固定レートで換算",
+        "```",
+      ].join("\n"),
+    );
+  } finally {
+    await Deno.remove(baseDir, { recursive: true });
+    await Deno.remove(worktreePath, { recursive: true });
+  }
+});

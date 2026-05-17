@@ -5,12 +5,88 @@ export interface ParsedCodexLine {
   finalText?: string;
   sessionId?: string;
   rateLimitTimestamp?: number;
+  usage?: ParsedUsage;
+}
+
+export interface ParsedUsage {
+  inputTokens: number;
+  processingTokens: number;
+  outputTokens: number;
+  totalTokens?: number;
+  costUsd?: number;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object"
     ? (value as Record<string, unknown>)
     : undefined;
+}
+
+function asNumber(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
+function firstNumber(
+  container: Record<string, unknown> | undefined,
+  keys: readonly string[],
+): number | undefined {
+  if (!container) return undefined;
+  for (const key of keys) {
+    const value = asNumber(container[key]);
+    if (value !== undefined) return value;
+  }
+  return undefined;
+}
+
+function extractUsageFromJson(
+  json: Record<string, unknown>,
+): ParsedUsage | undefined {
+  const response = asRecord(json.response);
+  const usage = asRecord(json.usage) ?? asRecord(response?.usage);
+  if (!usage) return undefined;
+
+  const inputTokens = firstNumber(usage, [
+    "input_tokens",
+    "prompt_tokens",
+  ]) ?? 0;
+  const processingTokens = firstNumber(usage, [
+    "reasoning_tokens",
+    "reasoning_output_tokens",
+    "processing_tokens",
+  ]) ?? 0;
+  const outputTokens = firstNumber(usage, [
+    "output_tokens",
+    "completion_tokens",
+  ]) ?? 0;
+
+  const totalTokens = firstNumber(usage, [
+    "total_tokens",
+  ]);
+  const costUsd = firstNumber(usage, [
+    "total_cost_usd",
+    "cost_usd",
+    "price_usd",
+  ]);
+
+  if (
+    inputTokens === 0 && processingTokens === 0 && outputTokens === 0 &&
+    totalTokens === undefined && costUsd === undefined
+  ) {
+    return undefined;
+  }
+
+  return {
+    inputTokens,
+    processingTokens,
+    outputTokens,
+    totalTokens,
+    costUsd,
+  };
 }
 
 function flattenText(value: unknown): string {
@@ -70,6 +146,7 @@ export class CodexStreamProcessor {
         finalText: finalText || undefined,
         sessionId,
         rateLimitTimestamp: rateFromText,
+        usage: extractUsageFromJson(json),
       };
     } catch {
       // JSONでない行は生ログとして扱う

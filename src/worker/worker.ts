@@ -15,6 +15,7 @@ import {
 import {
   CodexStreamProcessor,
   extractRateLimitTimestamp,
+  type ParsedUsage,
 } from "./codex-stream-processor.ts";
 import { MessageFormatter } from "./message-formatter.ts";
 import { SessionLogger } from "./session-logger.ts";
@@ -23,6 +24,7 @@ import type { IWorker, WorkerError } from "./types.ts";
 
 const DIAGNOSTIC_SECTION_LIMIT = 1800;
 const DIAGNOSTIC_TEXT_LIMIT = 5000;
+const USD_TO_JPY_RATE = 160;
 
 function redactSensitiveText(text: string): string {
   return text
@@ -96,6 +98,7 @@ export class Worker implements IWorker {
     let pendingBuffer = "";
     let outputLastMessagePath: string | null = null;
     let rateLimitTimestamp: number | undefined;
+    let latestUsage: ParsedUsage | undefined;
 
     const onData = (chunk: Uint8Array) => {
       const text = new TextDecoder().decode(chunk, { stream: true });
@@ -109,6 +112,9 @@ export class Worker implements IWorker {
 
         if (parsed.rateLimitTimestamp !== undefined) {
           rateLimitTimestamp = parsed.rateLimitTimestamp;
+        }
+        if (parsed.usage) {
+          latestUsage = parsed.usage;
         }
 
         if (parsed.sessionId) {
@@ -163,6 +169,9 @@ export class Worker implements IWorker {
         }
         if (parsed.rateLimitTimestamp !== undefined) {
           rateLimitTimestamp = parsed.rateLimitTimestamp;
+        }
+        if (parsed.usage) {
+          latestUsage = parsed.usage;
         }
       }
 
@@ -232,9 +241,11 @@ export class Worker implements IWorker {
       await this.saveRawCodexOutput(allOutput, this.state.sessionId);
       await this.save();
 
+      const usageSummary = this.formatUsageSummary(latestUsage);
+      const responseText = finalResult.trim() || MESSAGES.NO_FINAL_RESPONSE;
       return ok(
         this.formatter.formatResponse(
-          finalResult.trim() || MESSAGES.NO_FINAL_RESPONSE,
+          usageSummary ? `${responseText}\n\n${usageSummary}` : responseText,
         ),
       );
     } catch (error) {
@@ -410,6 +421,29 @@ export class Worker implements IWorker {
       return message;
     }
     return "";
+  }
+
+  private formatUsageSummary(usage?: ParsedUsage): string {
+    if (!usage) return "";
+
+    const lines = [
+      "```text",
+      `トークン: 入力 ${usage.inputTokens} / 処理 ${usage.processingTokens} / 出力 ${usage.outputTokens}`,
+    ];
+    if (usage.totalTokens !== undefined) {
+      lines.push(`合計: ${usage.totalTokens}`);
+    }
+    if (usage.costUsd !== undefined) {
+      const costJpy = Math.round(usage.costUsd * USD_TO_JPY_RATE);
+      lines.push(
+        `料金： ¥${costJpy.toLocaleString("ja-JP")} JPY ($${
+          usage.costUsd.toFixed(6)
+        }USD)`,
+      );
+      lines.push(`※ 1 USD = ${USD_TO_JPY_RATE} JPY の固定レートで換算`);
+    }
+    lines.push("```");
+    return lines.join("\n");
   }
 
   getName(): string {
