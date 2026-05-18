@@ -10,10 +10,12 @@ export interface ParsedCodexLine {
 
 export interface ParsedUsage {
   inputTokens: number;
+  cachedInputTokens: number;
   processingTokens: number;
   outputTokens: number;
   totalTokens?: number;
   costUsd?: number;
+  model?: string;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -48,6 +50,18 @@ function firstNumber(
   return undefined;
 }
 
+function firstString(
+  container: Record<string, unknown> | undefined,
+  keys: readonly string[],
+): string | undefined {
+  if (!container) return undefined;
+  for (const key of keys) {
+    const value = container[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
 function extractUsageFromJson(
   json: Record<string, unknown>,
 ): ParsedUsage | undefined {
@@ -60,6 +74,11 @@ function extractUsageFromJson(
   const inputTokens = firstNumber(usage, [
     "input_tokens",
     "prompt_tokens",
+  ]) ?? 0;
+  const cachedInputTokens = firstNumber(usage, [
+    "cached_input_tokens",
+    "input_cached_tokens",
+    "cache_read_input_tokens",
   ]) ?? 0;
   const processingTokens = firstNumber(usage, [
     "reasoning_tokens",
@@ -93,20 +112,26 @@ function extractUsageFromJson(
       "value",
       "amount",
     ]);
+  const model = firstString(json, ["model"]) ??
+    firstString(response, ["model"]) ??
+    firstString(usage, ["model"]);
 
   if (
-    inputTokens === 0 && processingTokens === 0 && outputTokens === 0 &&
-    totalTokens === undefined && costUsd === undefined
+    inputTokens === 0 && cachedInputTokens === 0 && processingTokens === 0 &&
+    outputTokens === 0 &&
+    totalTokens === undefined && costUsd === undefined && model === undefined
   ) {
     return undefined;
   }
 
   return {
     inputTokens,
+    cachedInputTokens,
     processingTokens,
     outputTokens,
     totalTokens,
     costUsd,
+    model,
   };
 }
 

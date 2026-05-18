@@ -17,6 +17,7 @@ import {
   extractRateLimitTimestamp,
   type ParsedUsage,
 } from "./codex-stream-processor.ts";
+import { estimateCostUsd } from "./model-pricing.ts";
 import { MessageFormatter } from "./message-formatter.ts";
 import { SessionLogger } from "./session-logger.ts";
 import { WorkerConfiguration } from "./worker-configuration.ts";
@@ -453,19 +454,45 @@ export class Worker implements IWorker {
       "```text",
       `トークン: 入力 ${usage.inputTokens} / 処理 ${usage.processingTokens} / 出力 ${usage.outputTokens}`,
     ];
+    if (usage.cachedInputTokens > 0) {
+      lines.push(`入力キャッシュ: ${usage.cachedInputTokens}`);
+    }
     if (usage.totalTokens !== undefined) {
       lines.push(`合計: ${usage.totalTokens}`);
     }
-    if (usage.costUsd !== undefined) {
-      const costJpy = Math.round(usage.costUsd * USD_TO_JPY_RATE);
+    if (usage.model) {
+      lines.push(`モデル: ${usage.model}`);
+    }
+
+    const cost = usage.costUsd !== undefined
+      ? { usd: usage.costUsd, source: "api" as const, model: usage.model }
+      : (() => {
+        const estimated = estimateCostUsd(usage);
+        if (!estimated) return null;
+        return {
+          usd: estimated.usd,
+          source: "estimated" as const,
+          model: estimated.model,
+        };
+      })();
+
+    if (cost) {
+      const costJpy = Math.round(cost.usd * USD_TO_JPY_RATE);
       lines.push(
         `料金： ¥${costJpy.toLocaleString("ja-JP")} JPY ($${
-          usage.costUsd.toFixed(6)
+          cost.usd.toFixed(6)
         }USD)`,
+      );
+      lines.push(
+        cost.source === "api"
+          ? "※ OpenAI応答の cost_usd を表示"
+          : `※ cost_usd 欠落のためモデル単価から算出（${cost.model}）`,
       );
       lines.push(`※ 1 USD = ${USD_TO_JPY_RATE} JPY の固定レートで換算`);
     } else {
-      lines.push("料金： 取得不可（この応答に cost_usd が含まれていません）");
+      lines.push(
+        "料金： 取得不可（cost_usd が無く、モデル単価表でも計算できません）",
+      );
     }
     if (threadTotals) {
       const total = threadTotals.inputTokens + threadTotals.processingTokens +
