@@ -32,6 +32,12 @@ const ZERO_TOKEN_TOTALS = {
   outputTokens: 0,
 };
 
+interface ResolvedCost {
+  usd: number;
+  source: "api" | "estimated";
+  model?: string;
+}
+
 function redactSensitiveText(text: string): string {
   return text
     .replace(
@@ -52,6 +58,26 @@ function truncateDiagnostic(text: string, limit = DIAGNOSTIC_SECTION_LIMIT) {
   const trimmed = redactSensitiveText(text).trim();
   if (trimmed.length <= limit) return trimmed;
   return `${trimmed.slice(-limit)}\n...前半を省略しました`;
+}
+
+function resolveUsageCost(usage: ParsedUsage): ResolvedCost | null {
+  if (usage.costUsd !== undefined) {
+    return { usd: usage.costUsd, source: "api", model: usage.model };
+  }
+  const estimated = estimateCostUsd(usage);
+  if (!estimated) return null;
+  return {
+    usd: estimated.usd,
+    source: "estimated",
+    model: estimated.model,
+  };
+}
+
+function formatUsdToJpyLine(label: string, usd: number): string {
+  const costJpy = Math.round(usd * USD_TO_JPY_RATE);
+  return `${label}： ¥${costJpy.toLocaleString("ja-JP")} JPY ($${
+    usd.toFixed(6)
+  }USD)`;
 }
 
 export class Worker implements IWorker {
@@ -245,11 +271,16 @@ export class Worker implements IWorker {
       }
 
       if (latestUsage) {
+        const currentCost = resolveUsageCost(latestUsage);
         const totals = this.state.threadTokenTotals ?? { ...ZERO_TOKEN_TOTALS };
         totals.inputTokens += latestUsage.inputTokens;
         totals.processingTokens += latestUsage.processingTokens;
         totals.outputTokens += latestUsage.outputTokens;
         this.state.threadTokenTotals = totals;
+        if (currentCost) {
+          this.state.threadCostUsd = (this.state.threadCostUsd ?? 0) +
+            currentCost.usd;
+        }
       }
 
       await this.saveRawCodexOutput(allOutput, this.state.sessionId);
@@ -258,6 +289,7 @@ export class Worker implements IWorker {
       const usageSummary = this.formatUsageSummary(
         latestUsage,
         this.state.threadTokenTotals,
+        this.state.threadCostUsd,
       );
       const responseText = finalResult.trim() || MESSAGES.NO_FINAL_RESPONSE;
       return ok(
@@ -447,6 +479,7 @@ export class Worker implements IWorker {
       processingTokens: number;
       outputTokens: number;
     },
+    threadCostUsd?: number,
   ): string {
     if (!usage) return "";
 
@@ -464,25 +497,10 @@ export class Worker implements IWorker {
       lines.push(`モデル: ${usage.model}`);
     }
 
-    const cost = usage.costUsd !== undefined
-      ? { usd: usage.costUsd, source: "api" as const, model: usage.model }
-      : (() => {
-        const estimated = estimateCostUsd(usage);
-        if (!estimated) return null;
-        return {
-          usd: estimated.usd,
-          source: "estimated" as const,
-          model: estimated.model,
-        };
-      })();
+    const cost = resolveUsageCost(usage);
 
     if (cost) {
-      const costJpy = Math.round(cost.usd * USD_TO_JPY_RATE);
-      lines.push(
-        `料金： ¥${costJpy.toLocaleString("ja-JP")} JPY ($${
-          cost.usd.toFixed(6)
-        }USD)`,
-      );
+      lines.push(formatUsdToJpyLine("料金", cost.usd));
       lines.push(
         cost.source === "api"
           ? "※ OpenAI応答の cost_usd を表示"
@@ -497,9 +515,10 @@ export class Worker implements IWorker {
     if (threadTotals) {
       const total = threadTotals.inputTokens + threadTotals.processingTokens +
         threadTotals.outputTokens;
-      lines.push(
-        `スレッド累計トークン: 入力 ${threadTotals.inputTokens} / 処理 ${threadTotals.processingTokens} / 出力 ${threadTotals.outputTokens} (合計 ${total})`,
-      );
+      lines.push(`スレッド累計トークン: 合計 ${total}`);
+      if (threadCostUsd !== undefined) {
+        lines.push(formatUsdToJpyLine("スレッド累計料金", threadCostUsd));
+      }
     }
     lines.push("```");
     return lines.join("\n");

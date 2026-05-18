@@ -52,6 +52,7 @@ export interface WorkerState {
     processingTokens: number;
     outputTokens: number;
   };
+  threadCostUsd?: number;
 }
 
 interface WorkspaceConfig {
