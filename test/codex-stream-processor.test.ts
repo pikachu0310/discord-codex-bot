@@ -112,10 +112,12 @@ Deno.test("CodexStreamProcessor: turn.completedのusageを抽出できる", () =
 
   assertEquals(parsed.usage, {
     inputTokens: 120,
+    cachedInputTokens: 0,
     processingTokens: 30,
     outputTokens: 45,
     totalTokens: 195,
     costUsd: 0.00123,
+    model: undefined,
   });
 });
 
@@ -136,9 +138,36 @@ Deno.test("CodexStreamProcessor: 文字列/ネスト形式のcostを抽出でき
 
   assertEquals(parsed.usage, {
     inputTokens: 10,
+    cachedInputTokens: 0,
     processingTokens: 0,
     outputTokens: 5,
     totalTokens: undefined,
     costUsd: 0.012345,
+    model: undefined,
+  });
+});
+
+Deno.test("CodexStreamProcessor: model と cached_input_tokens を抽出できる", () => {
+  const processor = new CodexStreamProcessor();
+  const parsed = processor.parseLine(JSON.stringify({
+    type: "turn.completed",
+    response: {
+      model: "gpt-5.1-codex",
+      usage: {
+        input_tokens: 200,
+        cached_input_tokens: 80,
+        output_tokens: 40,
+      },
+    },
+  }));
+
+  assertEquals(parsed.usage, {
+    inputTokens: 200,
+    cachedInputTokens: 80,
+    processingTokens: 0,
+    outputTokens: 40,
+    totalTokens: undefined,
+    costUsd: undefined,
+    model: "gpt-5.1-codex",
   });
 });
