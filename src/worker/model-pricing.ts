@@ -83,20 +83,41 @@ function normalizeModel(model: string): string {
   return model.trim().toLowerCase();
 }
 
+function addCandidate(
+  candidates: string[],
+  candidate: string | undefined,
+): void {
+  if (!candidate) return;
+  if (!candidates.includes(candidate)) {
+    candidates.push(candidate);
+  }
+}
+
 function resolveRate(
   model?: string,
 ): { model: string; rate: ModelPricingRate } | null {
   if (!model) return null;
   const normalized = normalizeModel(model);
 
-  const exact = RATES[normalized];
-  if (exact) return { model: normalized, rate: exact };
+  const candidates: string[] = [];
+  addCandidate(candidates, normalized);
+  addCandidate(candidates, normalized.split("/").pop());
 
-  const dateSuffixMatch = normalized.match(/^(.*)-\d{4}-\d{2}-\d{2}$/);
-  if (dateSuffixMatch) {
-    const base = dateSuffixMatch[1];
-    const baseRate = RATES[base];
-    if (baseRate) return { model: base, rate: baseRate };
+  for (let index = 0; index < candidates.length; index += 1) {
+    const candidate = candidates[index];
+    if (!candidate) continue;
+
+    const exact = RATES[candidate];
+    if (exact) return { model: candidate, rate: exact };
+
+    if (candidate.endsWith("-latest")) {
+      addCandidate(candidates, candidate.slice(0, candidate.length - 7));
+    }
+
+    const dateSuffixMatch = candidate.match(/^(.*)-\d{4}-\d{2}-\d{2}$/);
+    if (dateSuffixMatch) {
+      addCandidate(candidates, dateSuffixMatch[1]);
+    }
   }
 
   return null;
