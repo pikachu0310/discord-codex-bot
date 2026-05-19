@@ -36,6 +36,7 @@ import {
   formatSystemCheckResults,
 } from "./system-check.ts";
 import { generateThreadNameWithCodex } from "./thread-namer.ts";
+import { formatStartCommandErrorForUser } from "./start-command-error.ts";
 import { formatDiscordSendLog } from "./utils/discord-log.ts";
 import { splitIntoDiscordChunks } from "./utils/discord-message.ts";
 import { WorkspaceManager } from "./workspace/workspace.ts";
@@ -496,7 +497,7 @@ async function handleStart(interaction: ChatInputCommandInteraction) {
     );
   } catch (error) {
     console.error("[StartCommand] failed", error);
-    const fallbackMessage =
+    const fallbackMessage = formatStartCommandErrorForUser(error) ??
       "start コマンドの実行中にエラーが発生しました。ログを確認してください。";
     try {
       if (interaction.deferred || interaction.replied) {
