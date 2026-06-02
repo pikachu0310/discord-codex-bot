@@ -4,6 +4,7 @@ import {
   formatCodexStatus,
   formatCodexStatusDelta,
   formatCodexStatusPresence,
+  isCodexUpdatePrompt,
   normalizeTimeZone,
   parseCodexStatus,
   stripTerminalControlSequences,
@@ -81,6 +82,16 @@ Deno.test("convertCodexStatusTimeZone: UTCのreset時刻を指定タイムゾー
 Deno.test("normalizeTimeZone: JST/JTCをAsia/Tokyoとして扱う", () => {
   assertEquals(normalizeTimeZone("JST"), "Asia/Tokyo");
   assertEquals(normalizeTimeZone("JTC"), "Asia/Tokyo");
+});
+
+Deno.test("isCodexUpdatePrompt: Codexのupdate通知を検出する", () => {
+  const output = [
+    "✨ Update available! 0.134.0 -> 0.135.0",
+    "› 1. Update now (runs `npm install -g @openai/codex`)",
+    "2. Skip",
+  ].join("\n");
+
+  assertEquals(isCodexUpdatePrompt(output), true);
 });
 
 Deno.test("stripTerminalControlSequences: ANSI制御シーケンスを除去する", () => {

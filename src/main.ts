@@ -22,12 +22,19 @@ import type {
 import { Admin } from "./admin/admin.ts";
 import type { AdminError } from "./admin/types.ts";
 import {
+  type CodexStatusError,
   CodexStatusProvider,
   type CodexUsageStatus,
   formatCodexStatus,
   formatCodexStatusDelta,
   formatCodexStatusPresence,
+  stripTerminalControlSequences,
 } from "./codex-status.ts";
+import {
+  formatCodexUpdateError,
+  formatCodexUpdateResult,
+  updateCodexCli,
+} from "./codex-update.ts";
 import { MESSAGES } from "./constants.ts";
 import { getEnv } from "./env.ts";
 import { ensureRepository, parseRepository } from "./git-utils.ts";
@@ -213,6 +220,10 @@ const commands = [
     .setDescription("Codexの利用制限を確認します")
     .toJSON(),
   new SlashCommandBuilder()
+    .setName("update")
+    .setDescription("Codex CLIを最新版へ更新します")
+    .toJSON(),
+  new SlashCommandBuilder()
     .setName("active-threads")
     .setDescription("現在アクティブな作業スレッドを確認します")
     .toJSON(),
@@ -319,6 +330,11 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
     return;
   }
 
+  if (commandName === "update") {
+    await handleUpdate(interaction);
+    return;
+  }
+
   if (commandName === "active-threads") {
     await handleActiveThreads(interaction);
     return;
@@ -355,26 +371,85 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
 
 async function handleStatus(interaction: ChatInputCommandInteraction) {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  const status = await refreshCodexStatus(Deno.cwd());
-  if (!status) {
-    await interaction.editReply("Codex status の取得に失敗しました。");
+  const result = await getAndApplyCodexStatus(Deno.cwd());
+  if (result.isErr()) {
+    await interaction.editReply(formatCodexStatusError(result.error));
     return;
   }
   await interaction.editReply(
-    `\`\`\`kotlin\n${formatCodexStatus(status)}\n\`\`\``,
+    `\`\`\`kotlin\n${formatCodexStatus(result.value)}\n\`\`\``,
   );
+}
+
+async function handleUpdate(interaction: ChatInputCommandInteraction) {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const result = await updateCodexCli();
+  if (result.isErr()) {
+    await interaction.editReply(formatCodexUpdateError(result.error));
+    return;
+  }
+  await interaction.editReply(formatCodexUpdateResult(result.value));
+  await refreshCodexStatus(Deno.cwd());
 }
 
 async function refreshCodexStatus(
   cwd: string,
 ): Promise<CodexUsageStatus | null> {
+  const result = await getAndApplyCodexStatus(cwd);
+  return result.isOk() ? result.value : null;
+}
+
+async function getAndApplyCodexStatus(cwd: string) {
   const result = await codexStatusProvider.getStatus(cwd);
   if (result.isErr()) {
-    console.error("[CodexStatus] failed", result.error);
-    return null;
+    console.error(
+      "[CodexStatus] failed",
+      formatCodexStatusErrorForLog(result.error),
+    );
+    return result;
   }
   updateDiscordPresence(result.value);
-  return result.value;
+  return result;
+}
+
+function formatCodexStatusErrorForLog(
+  error: CodexStatusError,
+): CodexStatusError {
+  if (!("output" in error)) {
+    return error;
+  }
+  return {
+    ...error,
+    output: truncateLogOutput(error.output),
+  };
+}
+
+function truncateLogOutput(output: string): string {
+  const cleaned = stripTerminalControlSequences(output)
+    .replace(/\s+/g, " ")
+    .trim();
+  if (cleaned.length <= 10) return cleaned;
+  return `${cleaned.slice(0, 10)}...`;
+}
+
+function formatCodexStatusError(error: CodexStatusError): string {
+  if (error.type === "UPDATE_REQUIRED") {
+    return [
+      "Codex CLI の update 通知で status を取得できませんでした。",
+      "`/update` を実行して Codex CLI を更新してから、もう一度 `/status` を実行してください。",
+    ].join("\n");
+  }
+  return "Codex status の取得に失敗しました。";
+}
+
+function formatCodexStatusUnavailableNote(error?: CodexStatusError): string {
+  if (error?.type !== "UPDATE_REQUIRED") {
+    return "";
+  }
+  return [
+    "Codex limit の取得は Codex CLI の update 通知でブロックされました。",
+    "`/update` を実行すると次回から再び表示できます。",
+  ].join("\n");
 }
 
 function updateDiscordPresence(status: CodexUsageStatus): void {
@@ -584,7 +659,8 @@ client.on(Events.MessageCreate, async (message) => {
     await message.react(emoji).catch(() => {});
   };
 
-  const startStatus = await refreshCodexStatus(Deno.cwd());
+  const startStatusResult = await getAndApplyCodexStatus(Deno.cwd());
+  const startStatus = startStatusResult.isOk() ? startStatusResult.value : null;
 
   const attachmentInputs = getAttachmentDownloadInputs(message);
   let savedAttachments: SavedAttachment[] = [];
@@ -646,15 +722,25 @@ client.on(Events.MessageCreate, async (message) => {
 
   const reply = result.value;
   const replyContent = typeof reply === "string" ? reply : reply.content;
-  const endStatus = await refreshCodexStatus(Deno.cwd());
+  const endStatusResult = await getAndApplyCodexStatus(Deno.cwd());
+  const endStatus = endStatusResult.isOk() ? endStatusResult.value : null;
   const finalReply = replyContent.trim() === MESSAGES.NO_FINAL_RESPONSE &&
       lastProgressMessageUrl
     ? `Codexの最終テキストを取得できなかったため、直近の出力を参照してください。\n> ${lastProgressMessageUrl}`
     : replyContent;
+  const statusUnavailableNote = formatCodexStatusUnavailableNote(
+    endStatusResult.isErr()
+      ? endStatusResult.error
+      : startStatusResult.isErr()
+      ? startStatusResult.error
+      : undefined,
+  );
   const replyWithStatus = startStatus && endStatus
     ? `${finalReply}\n\`\`\`kotlin\n${
       formatCodexStatusDelta(startStatus, endStatus)
     }\n\`\`\``
+    : statusUnavailableNote
+    ? `${finalReply}\n${statusUnavailableNote}`
     : finalReply;
   const chunks = chunkDiscordContent(replyWithStatus);
   if (chunks.length === 0) return;

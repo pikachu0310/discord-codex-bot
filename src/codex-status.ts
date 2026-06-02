@@ -15,6 +15,7 @@ export type CodexStatusError =
   | { type: "COMMAND_FAILED"; code: number; output: string }
   | { type: "COMMAND_TIMEOUT"; output: string }
   | { type: "PARSE_FAILED"; output: string }
+  | { type: "UPDATE_REQUIRED"; output: string }
   | { type: "STATUS_UNAVAILABLE"; error: string };
 
 interface CodexStatusProviderOptions {
@@ -99,6 +100,9 @@ export class CodexStatusProvider {
     output: string,
   ): Result<CodexUsageStatus, CodexStatusError> {
     const parsed = parseCodexStatus(output);
+    if (parsed.isErr() && isCodexUpdatePrompt(output)) {
+      return err({ type: "UPDATE_REQUIRED", output });
+    }
     if (parsed.isErr() || !this.timeZone) {
       return parsed;
     }
@@ -352,6 +356,15 @@ export function stripTerminalControlSequences(text: string): string {
         codePoint === 9 || codePoint >= 32;
     })
     .join("");
+}
+
+export function isCodexUpdatePrompt(output: string): boolean {
+  const cleaned = stripTerminalControlSequences(output).replace(/\s+/g, " ");
+  return cleaned.includes("Update available!") &&
+    cleaned.includes("codex") &&
+    (cleaned.includes("Update now") ||
+      cleaned.includes("npm install -g @openai/codex") ||
+      cleaned.includes("codex update"));
 }
 
 export function formatCodexStatus(status: CodexUsageStatus): string {

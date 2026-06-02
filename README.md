@@ -164,6 +164,8 @@ Codex CLI に渡し、進捗と応答を同じスレッドへ返します。
 | `/start repository:owner/repo` | 通常チャンネル | リポジトリを準備し、新しい作業スレッドを作ります。                                 |
 | `/stop`                        | 作業スレッド   | 実行中の Codex プロセスを中断します。                                              |
 | `/plan`                        | 作業スレッド   | 次回以降の依頼で、実装前に計画を返すよう Codex へ指示します。                      |
+| `/status`                      | どこでも       | Codex の 5h / Weekly limit を確認します。                                          |
+| `/update`                      | どこでも       | Codex CLI を最新版へ更新します。update 通知で `/status` が塞がる場合に使います。   |
 | `/active-threads`              | どこでも       | 現在アクティブな作業スレッドから、実行者宛てに silent mention を送ります。         |
 | `/close`                       | 作業スレッド   | Worker を終了し、Discord スレッドをクローズします。Manage Threads 権限が必要です。 |
 
