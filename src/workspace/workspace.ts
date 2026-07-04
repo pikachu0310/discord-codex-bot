@@ -43,6 +43,8 @@ export interface WorkerState {
   repositoryLocalPath?: string;
   worktreePath?: string | null;
   sessionId?: string | null;
+  forkedFromThreadId?: string | null;
+  forkedFromSessionId?: string | null;
   status: "active" | "inactive" | "archived";
   createdAt: string;
   lastActiveAt: string;
@@ -200,6 +202,29 @@ export class WorkspaceManager {
     const workerName = workerState?.workerName ?? threadId;
     const result = await createWorktreeCopy(
       repositoryPath,
+      workerName,
+      worktreePath,
+    );
+    if (result.isErr()) {
+      const errorMessage = result.error.type === "WORKTREE_CREATE_FAILED"
+        ? result.error.error
+        : result.error.type;
+      throw new Error(errorMessage);
+    }
+    return worktreePath;
+  }
+
+  async forkWorktreeCopy(
+    sourceWorktreePath: string,
+    targetThreadId: string,
+    workerName: string,
+  ): Promise<string> {
+    const worktreePath = this.getWorktreePath(targetThreadId);
+    if (await isWorktreeCopyExists(worktreePath)) {
+      return worktreePath;
+    }
+    const result = await createWorktreeCopy(
+      sourceWorktreePath,
       workerName,
       worktreePath,
     );

@@ -70,7 +70,7 @@ export class Admin implements IAdmin {
   async createWorker(threadId: string): Promise<Result<IWorker, AdminError>> {
     const result = await this.workerManager.createWorker(threadId);
     if (result.isErr()) {
-      const reason = result.error.type === "WORKER_CREATE_FAILED"
+      const reason = "reason" in result.error
         ? result.error.reason
         : result.error.error;
       return err({
@@ -82,6 +82,43 @@ export class Admin implements IAdmin {
     await this.addActiveThread(threadId);
     await this.logAudit(threadId, "worker_created", {
       workerName: result.value.getName(),
+    });
+    return ok(result.value);
+  }
+
+  async createForkedWorker(
+    sourceThreadId: string,
+    targetThreadId: string,
+    codexThreadId: string,
+    worktreePath: string,
+  ): Promise<Result<IWorker, AdminError>> {
+    const result = await this.workerManager.createForkedWorker(
+      sourceThreadId,
+      targetThreadId,
+      codexThreadId,
+      worktreePath,
+    );
+    if (result.isErr()) {
+      const reason = "reason" in result.error
+        ? result.error.reason
+        : result.error.error;
+      return err({
+        type: "WORKER_CREATE_FAILED",
+        threadId: targetThreadId,
+        reason,
+      });
+    }
+
+    await this.addActiveThread(targetThreadId);
+    await this.logAudit(targetThreadId, "worker_forked", {
+      workerName: result.value.getName(),
+      sourceThreadId,
+      codexThreadId,
+      worktreePath,
+    });
+    await this.logAudit(sourceThreadId, "worker_fork_created", {
+      targetThreadId,
+      codexThreadId,
     });
     return ok(result.value);
   }

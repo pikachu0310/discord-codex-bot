@@ -24,6 +24,17 @@ Deno.test("CodexStreamProcessor: thread_idをセッションIDとして抽出で
   assertEquals(parsed.sessionId, "019dd88b-3a4d-7233-b59a-386b0710fadd");
 });
 
+Deno.test("CodexStreamProcessor: thread_idがあればsession_idより優先する", () => {
+  const processor = new CodexStreamProcessor();
+  const parsed = processor.parseLine(JSON.stringify({
+    type: "thread.started",
+    session_id: "session-tree",
+    thread_id: "thread-leaf",
+  }));
+
+  assertEquals(parsed.sessionId, "thread-leaf");
+});
+
 Deno.test("CodexStreamProcessor: レート制限時刻を抽出できる", () => {
   const ts = extractRateLimitTimestamp(
     "Codex AI usage limit reached|1710000000",

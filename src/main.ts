@@ -44,6 +44,10 @@ import {
 import { generateThreadNameWithCodex } from "./thread-namer.ts";
 import { formatDiscordSendLog } from "./utils/discord-log.ts";
 import { splitIntoDiscordChunks } from "./utils/discord-message.ts";
+import {
+  CodexAppServerClient,
+  type CodexAppServerError,
+} from "./worker/codex-app-server-client.ts";
 import { WorkspaceManager } from "./workspace/workspace.ts";
 
 function chunkDiscordContent(content: string): string[] {
@@ -215,6 +219,7 @@ const admin = Admin.fromState(
 const codexStatusProvider = new CodexStatusProvider({
   timeZone: env.CODEX_STATUS_TIME_ZONE,
 });
+const codexAppServerClient = new CodexAppServerClient();
 
 const client = new Client({
   intents: [
@@ -244,6 +249,10 @@ const commands = [
   new SlashCommandBuilder()
     .setName("plan")
     .setDescription("プランモードを有効にします")
+    .toJSON(),
+  new SlashCommandBuilder()
+    .setName("fork")
+    .setDescription("現在のCodexセッションを新しいスレッドへ分岐します")
     .toJSON(),
   new SlashCommandBuilder()
     .setName("status")
@@ -352,6 +361,11 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
       return;
     }
     await interaction.editReply("✅ プランモードを有効化しました。");
+    return;
+  }
+
+  if (commandName === "fork") {
+    await handleFork(interaction);
     return;
   }
 
@@ -552,6 +566,173 @@ async function handleActiveThreads(interaction: ChatInputCommandInteraction) {
   }
 
   await interaction.editReply(lines.join("\n"));
+}
+
+const DISCORD_THREAD_NAME_MAX_LENGTH = 100;
+
+interface ThreadCreatableChannel {
+  threads: {
+    create(options: {
+      name: string;
+      autoArchiveDuration: ThreadAutoArchiveDuration;
+      reason: string;
+    }): Promise<ThreadChannel>;
+  };
+}
+
+function canCreateThreads(channel: unknown): channel is ThreadCreatableChannel {
+  return !!channel && typeof channel === "object" && "threads" in channel;
+}
+
+function createForkThreadName(sourceName: string): string {
+  const suffix = `-fork-${Date.now()}`;
+  const baseName = sourceName.trim() || "codex-thread";
+  const maxBaseLength = Math.max(
+    1,
+    DISCORD_THREAD_NAME_MAX_LENGTH - suffix.length,
+  );
+  return `${baseName.slice(0, maxBaseLength)}${suffix}`;
+}
+
+function formatCodexAppServerError(error: CodexAppServerError): string {
+  switch (error.type) {
+    case "APP_SERVER_START_FAILED":
+      return `codex app-server の起動に失敗しました: ${
+        formatErrorDetail(error.error)
+      }`;
+    case "APP_SERVER_PROTOCOL_ERROR":
+      return `codex app-server の応答を解釈できませんでした: ${
+        formatErrorDetail(error.error)
+      }`;
+    case "APP_SERVER_ERROR":
+      return `codex app-server がエラーを返しました: ${
+        formatErrorDetail(error.message)
+      }${error.code === undefined ? "" : ` (code: ${error.code})`}`;
+    case "APP_SERVER_TIMEOUT":
+      return `codex app-server の ${error.operation} がタイムアウトしました。`;
+  }
+}
+
+async function cleanupFailedForkThread(
+  thread: ThreadChannel,
+  threadId: string,
+): Promise<void> {
+  await workspaceManager.removeWorktree(threadId).catch((error) => {
+    console.error("[Fork] failed to remove fork worktree", error);
+  });
+  if (!thread.archived) {
+    await thread.setArchived(true, "fork failed").catch((error) => {
+      console.error("[Fork] failed to archive failed fork thread", error);
+    });
+  }
+}
+
+async function handleFork(interaction: ChatInputCommandInteraction) {
+  if (!interaction.channel || !interaction.channel.isThread()) {
+    await interaction.reply("このコマンドはスレッド内でのみ使用できます。");
+    return;
+  }
+
+  const sourceThread = interaction.channel as ThreadChannel;
+  const parent = sourceThread.parent;
+  if (!canCreateThreads(parent)) {
+    await interaction.reply(
+      "このスレッドの親チャンネルではforkを作成できません。",
+    );
+    return;
+  }
+
+  await interaction.deferReply();
+
+  const sourceState = await workspaceManager.loadWorkerState(sourceThread.id);
+  if (!sourceState || sourceState.status === "archived") {
+    await interaction.editReply(
+      "このスレッドの作業状態が見つかりません。/start で新規に開始してください。",
+    );
+    return;
+  }
+
+  if (
+    !sourceState.repository ||
+    !sourceState.repositoryLocalPath ||
+    !sourceState.worktreePath
+  ) {
+    await interaction.editReply(
+      "このスレッドにはリポジトリが設定されていないためforkできません。",
+    );
+    return;
+  }
+
+  const sourceCodexThreadId = sourceState.sessionId?.trim();
+  if (!sourceCodexThreadId) {
+    await interaction.editReply(
+      "まだCodexセッションがありません。先に通常メッセージでCodexを一度実行してください。",
+    );
+    return;
+  }
+
+  let forkThread: ThreadChannel | null = null;
+  try {
+    forkThread = await parent.threads.create({
+      name: createForkThreadName(sourceThread.name),
+      autoArchiveDuration: ThreadAutoArchiveDuration.OneWeek,
+      reason: `${sourceThread.name}からのCodex fork`,
+    });
+
+    const worktreePath = await workspaceManager.forkWorktreeCopy(
+      sourceState.worktreePath,
+      forkThread.id,
+      `fork-${forkThread.id}`,
+    );
+
+    const forkResult = await codexAppServerClient.forkThread({
+      threadId: sourceCodexThreadId,
+      cwd: worktreePath,
+      runtimeWorkspaceRoots: [worktreePath],
+    });
+    if (forkResult.isErr()) {
+      await cleanupFailedForkThread(forkThread, forkThread.id);
+      await interaction.editReply(formatCodexAppServerError(forkResult.error));
+      return;
+    }
+
+    const workerResult = await admin.createForkedWorker(
+      sourceThread.id,
+      forkThread.id,
+      forkResult.value.threadId,
+      worktreePath,
+    );
+    if (workerResult.isErr()) {
+      await cleanupFailedForkThread(forkThread, forkThread.id);
+      await interaction.editReply(
+        formatAdminErrorForDiscord(workerResult.error),
+      );
+      return;
+    }
+
+    await interaction.editReply(
+      [
+        `✅ forkを作成しました: ${forkThread.toString()}`,
+        `Codex thread: ${forkResult.value.threadId}`,
+      ].join("\n"),
+    );
+    await sendThreadMessage(
+      forkThread,
+      [
+        `${sourceThread.toString()} から分岐しました。`,
+        "次のメッセージからforkしたCodexコンテキストで再開します。",
+      ].join("\n"),
+    );
+  } catch (error) {
+    if (forkThread) {
+      await cleanupFailedForkThread(forkThread, forkThread.id);
+    }
+    await interaction.editReply(
+      `forkの作成に失敗しました: ${
+        formatErrorDetail(formatUnknownError(error))
+      }`,
+    );
+  }
 }
 
 async function handleStart(interaction: ChatInputCommandInteraction) {

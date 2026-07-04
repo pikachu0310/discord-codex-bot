@@ -86,11 +86,11 @@ export class CodexStreamProcessor {
   }
 
   private extractSessionId(json: Record<string, unknown>): string | undefined {
-    const direct = json.session_id;
-    if (typeof direct === "string" && direct) return direct;
-
     const threadId = json.thread_id;
     if (typeof threadId === "string" && threadId) return threadId;
+
+    const direct = json.session_id;
+    if (typeof direct === "string" && direct) return direct;
 
     const session = asRecord(json.session);
     if (session && typeof session.id === "string" && session.id) {
