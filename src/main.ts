@@ -50,7 +50,10 @@ import {
   generateConversationNamesWithCodex,
 } from "./thread-namer.ts";
 import { formatDiscordSendLog } from "./utils/discord-log.ts";
-import { splitIntoDiscordChunks } from "./utils/discord-message.ts";
+import {
+  shouldProcessDiscordMessage,
+  splitIntoDiscordChunks,
+} from "./utils/discord-message.ts";
 import { WorkspaceManager } from "./workspace/workspace.ts";
 
 function chunkDiscordContent(content: string): string[] {
@@ -631,9 +634,8 @@ client.on(Events.ThreadUpdate, (oldThread, newThread) => {
 
 client.on(Events.MessageCreate, (message) => {
   void runSafely("MessageCreate", async () => {
-    if (message.author.bot) return;
+    if (!shouldProcessDiscordMessage(message)) return;
     if (!message.channel.isThread()) return;
-    if (message.content.startsWith("!")) return;
 
     const thread = message.channel as ThreadChannel;
     const threadId = thread.id;

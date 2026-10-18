@@ -1,4 +1,13 @@
 import { DISCORD } from "../constants.ts";
+import type { Message } from "discord.js";
+
+export function shouldProcessDiscordMessage(
+  message: Pick<Message, "author" | "system" | "content" | "attachments">,
+): boolean {
+  return !message.author.bot && !message.system &&
+    !message.content.startsWith("!") &&
+    (message.content.trim().length > 0 || message.attachments.size > 0);
+}
 
 const CODE_BLOCK_REGEX = /```[\s\S]*?```/g;
 
