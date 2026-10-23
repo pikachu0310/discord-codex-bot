@@ -19,15 +19,13 @@ export class WorkerConfiguration {
       args.push("resume");
       this.appendOutputLastMessageArg(args, outputLastMessagePath);
       this.appendImageArgs(args, imagePaths);
-      this.appendOptionTerminator(args, imagePaths);
-      args.push(sessionId, prompt);
+      args.push("--", sessionId, prompt);
       return args;
     }
 
     this.appendOutputLastMessageArg(args, outputLastMessagePath);
     this.appendImageArgs(args, imagePaths);
-    this.appendOptionTerminator(args, imagePaths);
-    args.push(prompt);
+    args.push("--", prompt);
     return args;
   }
 
@@ -43,15 +41,6 @@ export class WorkerConfiguration {
   private appendImageArgs(args: string[], imagePaths: readonly string[]): void {
     for (const path of imagePaths) {
       args.push("--image", path);
-    }
-  }
-
-  private appendOptionTerminator(
-    args: string[],
-    imagePaths: readonly string[],
-  ): void {
-    if (imagePaths.length > 0) {
-      args.push("--");
     }
   }
 }

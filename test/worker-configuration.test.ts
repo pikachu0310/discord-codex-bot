@@ -13,7 +13,7 @@ Deno.test("WorkerConfiguration: 新規実行引数は固定形式", () => {
     "never",
     "--dangerously-bypass-approvals-and-sandbox",
   ]);
-  assertEquals(args.at(-1), "hello");
+  assertEquals(args.slice(6), ["--", "hello"]);
 });
 
 Deno.test("WorkerConfiguration: resumeあり引数を組み立てる", () => {
@@ -22,7 +22,12 @@ Deno.test("WorkerConfiguration: resumeあり引数を組み立てる", () => {
 
   const resumeIndex = args.indexOf("resume");
   assertEquals(resumeIndex > -1, true);
-  assertEquals(args[resumeIndex + 1], "session-1");
+  assertEquals(args.slice(resumeIndex), [
+    "resume",
+    "--",
+    "session-1",
+    "prompt",
+  ]);
   assertEquals(args.at(-1), "prompt");
 });
 
@@ -69,9 +74,10 @@ Deno.test("WorkerConfiguration: 新規実行に最終メッセージ出力先を
     "/tmp/last-message.txt",
   );
 
-  assertEquals(args.slice(-3), [
+  assertEquals(args.slice(-4), [
     "--output-last-message",
     "/tmp/last-message.txt",
+    "--",
     "prompt",
   ]);
 });
@@ -90,7 +96,65 @@ Deno.test("WorkerConfiguration: resume実行に最終メッセージ出力先を
     "resume",
     "--output-last-message",
     "/tmp/last-message.txt",
+    "--",
     "session-1",
     "prompt",
   ]);
+});
+
+Deno.test("WorkerConfiguration: オプションやサブコマンドに見える本文を新規実行に渡せる", () => {
+  const config = new WorkerConfiguration();
+  for (
+    const prompt of [
+      "--help",
+      "--model other-model",
+      "-x",
+      "--",
+      "resume",
+      "help",
+    ]
+  ) {
+    for (const imagePaths of [[], ["/tmp/image.png"]]) {
+      const args = config.buildCodexArgs(
+        prompt,
+        null,
+        imagePaths,
+        "/tmp/last-message.txt",
+      );
+
+      assertEquals(args.slice(6), [
+        "--output-last-message",
+        "/tmp/last-message.txt",
+        ...imagePaths.flatMap((path) => ["--image", path]),
+        "--",
+        prompt,
+      ]);
+    }
+  }
+});
+
+Deno.test("WorkerConfiguration: resumeのsession IDと本文の前でオプションを終端する", () => {
+  const config = new WorkerConfiguration();
+  for (const sessionId of ["session-1", "--last", "-x"]) {
+    for (const prompt of ["--help", "--model other-model", "-x", "--"]) {
+      for (const imagePaths of [[], ["/tmp/image.png"]]) {
+        const args = config.buildCodexArgs(
+          prompt,
+          sessionId,
+          imagePaths,
+          "/tmp/last-message.txt",
+        );
+
+        assertEquals(args.slice(args.indexOf("resume")), [
+          "resume",
+          "--output-last-message",
+          "/tmp/last-message.txt",
+          ...imagePaths.flatMap((path) => ["--image", path]),
+          "--",
+          sessionId,
+          prompt,
+        ]);
+      }
+    }
+  }
 });

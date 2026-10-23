@@ -204,18 +204,21 @@ Bot は概ね次の形式で Codex CLI を実行します。
 新規セッション:
 
 ```text
-codex --search exec --json --color never --dangerously-bypass-approvals-and-sandbox --output-last-message <path> "<prompt>"
+codex --search exec --json --color never --dangerously-bypass-approvals-and-sandbox --output-last-message <path> -- "<prompt>"
 ```
 
 継続セッション:
 
 ```text
-codex --search exec --json --color never --dangerously-bypass-approvals-and-sandbox resume --output-last-message <path> <session_id> "<prompt>"
+codex --search exec --json --color never --dangerously-bypass-approvals-and-sandbox resume --output-last-message <path> -- <session_id> "<prompt>"
 ```
 
 画像添付がある場合は `--image <path>`
 が追加されます。`CODEX_APPEND_SYSTEM_PROMPT` を設定している場合は
 `--append-system-prompt` も追加されます。
+
+画像の有無にかかわらず、すべてのオプションの後、本文（継続時は session ID）の直前に
+`--` を置きます。`--help` や `-x` などで始まる本文も位置引数として渡します。
 
 Bot は `--model` や `model_reasoning_effort` を指定しません。モデル、reasoning
 effort、profile などの Codex CLI 設定は、Bot を起動するユーザーの Codex CLI
