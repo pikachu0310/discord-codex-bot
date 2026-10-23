@@ -166,7 +166,27 @@ export class WorkspaceManager {
         throw new Error(`Attachment response has no body: ${attachment.url}`);
       }
 
-      await Deno.writeFile(path, response.body);
+      const temporaryPath = await Deno.makeTempFile({
+        dir,
+        prefix: ".attachment-",
+        suffix: ".tmp",
+      });
+      try {
+        await Deno.writeFile(temporaryPath, response.body);
+        await Deno.rename(temporaryPath, path);
+      } catch (error) {
+        try {
+          await Deno.remove(temporaryPath);
+        } catch (cleanupError) {
+          if (!(cleanupError instanceof Deno.errors.NotFound)) {
+            throw new AggregateError(
+              [error, cleanupError],
+              "Attachment download and temporary file cleanup failed",
+            );
+          }
+        }
+        throw error;
+      }
 
       savedAttachments.push({
         id: attachment.id,
