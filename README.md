@@ -217,8 +217,9 @@ codex --search exec --json --color never --dangerously-bypass-approvals-and-sand
 が追加されます。`CODEX_APPEND_SYSTEM_PROMPT` を設定している場合は
 `--append-system-prompt` も追加されます。
 
-画像の有無にかかわらず、すべてのオプションの後、本文（継続時は session ID）の直前に
-`--` を置きます。`--help` や `-x` などで始まる本文も位置引数として渡します。
+画像の有無にかかわらず、すべてのオプションの後、本文（継続時は session
+ID）の直前に `--` を置きます。`--help` や `-x`
+などで始まる本文も位置引数として渡します。
 
 Bot は `--model` や `model_reasoning_effort` を指定しません。モデル、reasoning
 effort、profile などの Codex CLI 設定は、Bot を起動するユーザーの Codex CLI
