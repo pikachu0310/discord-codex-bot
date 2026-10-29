@@ -1,13 +1,13 @@
 import {
   ActivityType,
   AutocompleteInteraction,
+  ButtonInteraction,
   ChatInputCommandInteraction,
   Client,
   Events,
   GatewayIntentBits,
   MessageFlags,
   Partials,
-  PermissionFlagsBits,
   REST,
   Routes,
   SlashCommandBuilder,
@@ -15,6 +15,11 @@ import {
   ThreadChannel,
 } from "discord.js";
 import type { Message } from "discord.js";
+import type { PendingQuestion } from "./worker/types.ts";
+import {
+  buildQuestionButtons,
+  parseQuestionButton,
+} from "./utils/discord-question.ts";
 import type {
   AttachmentDownloadInput,
   SavedAttachment,
@@ -158,6 +163,143 @@ async function replyToThreadMessage(message: Message, content: string) {
   return sent;
 }
 
+const questionMessages = new Map<
+  string,
+  Map<string, {
+    question: PendingQuestion;
+    message: Message;
+  }>
+>();
+
+async function refreshQuestionButtons(threadId: string) {
+  const messages = questionMessages.get(threadId);
+  if (!messages) return;
+  const worker = admin.getWorker(threadId);
+  const pending = new Set(
+    worker.isOk()
+      ? worker.value.getPendingQuestions?.().map((question) => question.id) ??
+        []
+      : [],
+  );
+  for (const [id, entry] of messages) {
+    if (pending.has(id)) continue;
+    await entry.message.edit({
+      components: buildQuestionButtons(entry.question, true),
+    }).catch((error) =>
+      console.error("[QuestionButtons] disable failed", error)
+    );
+    messages.delete(id);
+  }
+  if (!messages.size) questionMessages.delete(threadId);
+}
+
+async function postProgress(
+  thread: ThreadChannel,
+  content: string,
+  questions?: readonly PendingQuestion[],
+): Promise<string | null> {
+  let lastUrl: string | null = null;
+  const entries = questions?.length
+    ? questions.map((question) => ({
+      question,
+      content: questions.length === 1 ? content : [
+        `❓ （${question.position}/${question.total}）${question.title}`,
+        ...question.options.map((option, index) => `${index + 1}. ${option}`),
+        "ボタンで選択するか、このスレッドに自由文で回答してください。",
+      ].join("\n"),
+    }))
+    : [{ question: undefined, content }];
+  for (const entry of entries) {
+    const chunks = chunkDiscordContent(entry.content);
+    for (let index = 0; index < chunks.length; index++) {
+      const components = entry.question && index === chunks.length - 1
+        ? buildQuestionButtons(entry.question)
+        : [];
+      const sent = await sendThreadMessage(thread, {
+        content: chunks[index],
+        components,
+        flags: MessageFlags.SuppressNotifications,
+      });
+      lastUrl = sent.url;
+      if (entry.question && components.length) {
+        const messages = questionMessages.get(thread.id) ?? new Map();
+        messages.set(entry.question.id, {
+          question: entry.question,
+          message: sent,
+        });
+        questionMessages.set(thread.id, messages);
+      }
+    }
+  }
+  await refreshQuestionButtons(thread.id);
+  return lastUrl;
+}
+
+async function handleQuestionButton(interaction: ButtonInteraction) {
+  const answer = parseQuestionButton(interaction.customId);
+  if (!answer) return;
+  const thread = interaction.channel;
+  const worker = thread?.isThread() ? admin.getWorker(thread.id) : null;
+  const question = worker?.isOk()
+    ? worker.value.getPendingQuestions?.().find((q) =>
+      q.id === answer.questionId
+    )
+    : undefined;
+  const label = question?.options[answer.optionIndex];
+  if (!thread?.isThread() || label === undefined) {
+    await interaction.reply({
+      content:
+        "この質問は回答済み、取り消し済み、またはBot再起動前のものです。必要なら同じスレッドに自由文で返信してください。",
+      flags: MessageFlags.Ephemeral,
+    });
+    await interaction.message.edit({ components: [] }).catch(() => {});
+    return;
+  }
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const wasRunning = worker?.isOk() && worker.value.isRunning?.();
+  try {
+    // The executor checks the question ID again inside its serialized input
+    // queue so a click racing another click or a text reply cannot answer twice.
+    const result = await admin.routeMessage(
+      thread.id,
+      label,
+      [],
+      (content, questions) =>
+        postProgress(thread, content, questions).then(() => {}),
+      undefined,
+      answer,
+    );
+    if (result.isErr()) {
+      await interaction.editReply(
+        "この回答は送信できませんでした。先に別の回答が受け付けられたか、質問が終了した可能性があります。スレッドの最新の質問を確認してください。",
+      );
+      return;
+    }
+    await sendThreadMessage(thread, {
+      content: `✅ 回答「${label}」を受け付けました。`,
+      flags: MessageFlags.SuppressNotifications,
+    });
+    if (!wasRunning) {
+      const content = typeof result.value === "string"
+        ? result.value
+        : result.value.content;
+      for (const chunk of chunkDiscordContent(content)) {
+        await sendThreadMessage(thread, chunk);
+      }
+    }
+    await interaction.editReply(
+      "回答を送りました。続きはこのスレッドに表示されます。",
+    );
+  } catch (error) {
+    logUnexpectedError("QuestionButton", error);
+    await interaction.editReply(
+      "回答の送信に失敗しました。同じスレッドに自由文で返信してください。",
+    ).catch(() => {});
+  } finally {
+    await refreshQuestionButtons(thread.id);
+  }
+}
+
 function formatUnknownError(error: unknown): string {
   if (error instanceof Error) {
     return error.stack ?? error.message;
@@ -224,6 +366,7 @@ const codexStatusProvider = new CodexStatusProvider({
 });
 
 const client = new Client({
+  allowedMentions: { parse: [], repliedUser: false },
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
@@ -263,7 +406,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName("close")
     .setDescription("現在のスレッドをクローズします")
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageThreads)
+    .setDefaultMemberPermissions(null)
     .toJSON(),
 ];
 
@@ -290,6 +433,10 @@ client.once(Events.ClientReady, (readyClient) => {
 
 client.on(Events.InteractionCreate, (interaction) => {
   void runSafely("InteractionCreate", async () => {
+    if (interaction.isButton()) {
+      await handleQuestionButton(interaction);
+      return;
+    }
     if (interaction.isAutocomplete()) {
       await handleAutocomplete(interaction);
       return;
@@ -338,11 +485,17 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
       return;
     }
     await interaction.deferReply();
+    const worker = admin.getWorker(interaction.channel.id);
+    if (worker.isOk() && !worker.value.isRunning?.()) {
+      await interaction.editReply("現在、実行中の作業はありません。");
+      return;
+    }
     const result = await admin.stopExecution(interaction.channel.id);
     if (result.isErr()) {
       await interaction.editReply("中断対象が見つかりませんでした。");
       return;
     }
+    await refreshQuestionButtons(interaction.channel.id);
     await interaction.editReply("⛔ 実行を中断しました。");
     return;
   }
@@ -353,12 +506,18 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
       return;
     }
     await interaction.deferReply();
-    const result = await admin.setPlanMode(interaction.channel.id, true);
+    const worker = admin.getWorker(interaction.channel.id);
+    const enabled = worker.isOk() ? !worker.value.isPlanMode() : true;
+    const result = await admin.setPlanMode(interaction.channel.id, enabled);
     if (result.isErr()) {
       await interaction.editReply("プランモード設定に失敗しました。");
       return;
     }
-    await interaction.editReply("✅ プランモードを有効化しました。");
+    await interaction.editReply(
+      enabled
+        ? "✅ プランモードを有効化しました。次の依頼では実装前に計画を作ります。もう一度 /plan で通常モードに戻せます。"
+        : "✅ 通常モードに戻しました。次の依頼から適用します。",
+    );
     return;
   }
 
@@ -384,6 +543,7 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
       await interaction.editReply("クローズに失敗しました。");
       return;
     }
+    await refreshQuestionButtons(thread.id);
     try {
       if (!thread.archived) {
         await thread.setArchived(true, "/close command");
@@ -403,13 +563,33 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
 
 async function handleStatus(interaction: ChatInputCommandInteraction) {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const worker = interaction.channel?.isThread()
+    ? admin.getWorker(interaction.channel.id)
+    : null;
+  const current = worker?.isOk() ? worker.value : null;
+  const question = current?.getPendingQuestion?.();
+  const state = current
+    ? [
+      question
+        ? `❓ 回答待ち: ${question}`
+        : current.isRunning?.()
+        ? "⚙️ 作業中（/stop で中断できます）"
+        : "✅ 次の依頼を待っています。",
+      `モード: ${current.isPlanMode() ? "プラン" : "通常"}`,
+    ].join("\n")
+    : "";
+
   const result = await getAndApplyCodexStatus(Deno.cwd());
   if (result.isErr()) {
-    await interaction.editReply(formatCodexStatusError(result.error));
+    await interaction.editReply(
+      [state, formatCodexStatusError(result.error)].filter(Boolean).join("\n"),
+    );
     return;
   }
   await interaction.editReply(
-    `\`\`\`kotlin\n${formatCodexStatus(result.value)}\n\`\`\``,
+    [state, `\`\`\`kotlin\n${formatCodexStatus(result.value)}\n\`\`\``].filter(
+      Boolean,
+    ).join("\n"),
   );
 }
 
@@ -615,7 +795,7 @@ async function handleStart(interaction: ChatInputCommandInteraction) {
   await interaction.editReply(`${message}\nスレッド: ${thread.toString()}`);
   await sendThreadMessage(
     thread,
-    `こんにちは！ 準備バッチリだよ！ ${repository.fullName} について何でも聞いてね～！`,
+    `${repository.fullName} の作業を始められます。依頼や添付ファイルをこのスレッドに送ってください。\n作業中の追記・質問への回答もここへ送れます。中断は /stop、計画から始める場合は /plan。人同士の会話は先頭に ! を付けるとBotは反応しません。`,
   );
 }
 
@@ -663,24 +843,39 @@ client.on(Events.MessageCreate, (message) => {
     }
 
     let lastProgressMessageUrl: string | null = null;
-    const onProgress = async (content: string) => {
-      for (const chunk of chunkDiscordContent(content)) {
-        const sent = await sendThreadMessage(thread, {
-          content: chunk,
-          flags: MessageFlags.SuppressNotifications,
-        });
-        lastProgressMessageUrl = sent.url;
+    const onProgress = async (
+      content: string,
+      questions?: readonly PendingQuestion[],
+    ) => {
+      if (content.startsWith("❓")) await onReaction("❓");
+      else if (
+        workerResult.value.isRunning?.() &&
+        !workerResult.value.getPendingQuestion?.()
+      ) {
+        await onReaction("⚙️");
       }
+      lastProgressMessageUrl = await postProgress(thread, content, questions) ??
+        lastProgressMessageUrl;
     };
 
     const onReaction = async (emoji: string) => {
+      for (const previous of ["👀", "⚙️", "❓"]) {
+        if (previous === emoji) continue;
+        const reaction = message.reactions.cache.find((r) =>
+          r.emoji.name === previous
+        );
+        if (reaction?.me && client.user) {
+          await reaction.users.remove(client.user.id).catch(() => {});
+        }
+      }
       await message.react(emoji).catch(() => {});
     };
 
-    const startStatusResult = await getAndApplyCodexStatus(Deno.cwd());
-    const startStatus = startStatusResult.isOk()
-      ? startStatusResult.value
-      : null;
+    const isRunning = workerResult.value.isRunning?.() ?? false;
+    // Fetch usage in parallel; question answers must reach Codex immediately.
+    const startStatusPromise = isRunning
+      ? Promise.resolve(null)
+      : getAndApplyCodexStatus(Deno.cwd());
 
     const attachmentInputs = getAttachmentDownloadInputs(message);
     let savedAttachments: SavedAttachment[] = [];
@@ -704,15 +899,27 @@ client.on(Events.MessageCreate, (message) => {
       }
     }
 
+    if (!isRunning) void thread.sendTyping().catch(() => {});
+    const typingTimer = !isRunning
+      ? setInterval(() => {
+        if (!workerResult.value.getPendingQuestion?.()) {
+          void thread.sendTyping().catch(() => {});
+        }
+      }, 7000)
+      : undefined;
     const result = await admin.routeMessage(
       threadId,
       message.content,
       savedAttachments,
       onProgress,
       onReaction,
-    );
+    ).finally(async () => {
+      clearInterval(typingTimer);
+      await refreshQuestionButtons(threadId);
+    });
 
     if (result.isErr()) {
+      await onReaction("❌");
       if (result.error.type === "WORKER_NOT_FOUND") {
         const threadInfo = await workspaceManager.loadThreadInfo(threadId);
         if (threadInfo) {
@@ -740,18 +947,30 @@ client.on(Events.MessageCreate, (message) => {
       return;
     }
 
+    const startStatusResult = await startStatusPromise;
+    const startStatus = startStatusResult?.isOk()
+      ? startStatusResult.value
+      : null;
     const reply = result.value;
     const replyContent = typeof reply === "string" ? reply : reply.content;
-    const endStatusResult = await getAndApplyCodexStatus(Deno.cwd());
-    const endStatus = endStatusResult.isOk() ? endStatusResult.value : null;
+    const endStatusResult = isRunning
+      ? null
+      : await getAndApplyCodexStatus(Deno.cwd());
+    const endStatus = endStatusResult?.isOk() ? endStatusResult.value : null;
+    if (!isRunning) {
+      await onReaction(workerResult.value.getPendingQuestion?.() ? "❓" : "✅");
+    }
     const finalReply = replyContent.trim() === MESSAGES.NO_FINAL_RESPONSE &&
-        lastProgressMessageUrl
+        workerResult.value.getPendingQuestion?.()
+      ? "❓ 質問への回答を待っています。このスレッドに返信してください。"
+      : replyContent.trim() === MESSAGES.NO_FINAL_RESPONSE &&
+          lastProgressMessageUrl
       ? `Codexの最終テキストを取得できなかったため、直近の出力を参照してください。\n> ${lastProgressMessageUrl}`
       : replyContent;
     const statusUnavailableNote = formatCodexStatusUnavailableNote(
-      endStatusResult.isErr()
+      endStatusResult?.isErr()
         ? endStatusResult.error
-        : startStatusResult.isErr()
+        : startStatusResult?.isErr()
         ? startStatusResult.error
         : undefined,
     );

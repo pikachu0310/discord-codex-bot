@@ -1,5 +1,23 @@
 import type { SavedAttachment } from "../attachments.ts";
 
+export interface PendingQuestion {
+  id: string;
+  title: string;
+  options: readonly string[];
+  position: number;
+  total: number;
+}
+
+export interface QuestionAnswer {
+  questionId: string;
+  optionIndex: number;
+}
+
+export type ProgressCallback = (
+  content: string,
+  questions?: readonly PendingQuestion[],
+) => Promise<void>;
+
 export type WorkerError =
   | { type: "REPOSITORY_NOT_SET" }
   | { type: "CODEX_EXECUTION_FAILED"; error: string }
@@ -20,9 +38,13 @@ export interface IWorker {
   processMessage(
     message: string,
     attachments?: readonly SavedAttachment[],
-    onProgress?: (content: string) => Promise<void>,
+    onProgress?: ProgressCallback,
     onReaction?: (emoji: string) => Promise<void>,
+    questionAnswer?: QuestionAnswer,
   ): Promise<import("neverthrow").Result<string, WorkerError>>;
+  isRunning?(): boolean;
+  getPendingQuestion?(): string | null;
+  getPendingQuestions?(): readonly PendingQuestion[];
   getName(): string;
   getRepository(): import("../git-utils.ts").GitRepository | null;
   setRepository(

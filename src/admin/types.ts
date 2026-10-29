@@ -1,3 +1,4 @@
+import type { ProgressCallback, QuestionAnswer } from "../worker/types.ts";
 import type { SavedAttachment } from "../attachments.ts";
 
 export type AdminError =
@@ -21,8 +22,9 @@ export interface IAdmin {
     threadId: string,
     message: string,
     attachments?: readonly SavedAttachment[],
-    onProgress?: (content: string) => Promise<void>,
+    onProgress?: ProgressCallback,
     onReaction?: (emoji: string) => Promise<void>,
+    questionAnswer?: QuestionAnswer,
   ): Promise<import("neverthrow").Result<string | DiscordMessage, AdminError>>;
   getActiveThreadIds(): string[];
 }

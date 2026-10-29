@@ -1,3 +1,5 @@
+import type { PendingQuestion } from "./types.ts";
+
 export interface ParsedCodexLine {
   raw: string;
   json?: Record<string, unknown>;
@@ -5,6 +7,7 @@ export interface ParsedCodexLine {
   finalText?: string;
   sessionId?: string;
   rateLimitTimestamp?: number;
+  questions?: readonly PendingQuestion[];
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -73,13 +76,15 @@ export class CodexStreamProcessor {
         text: text || undefined,
         finalText: finalText || undefined,
         sessionId,
+        questions: json.type === "progress" && Array.isArray(json.questions)
+          ? json.questions as unknown as PendingQuestion[]
+          : undefined,
         rateLimitTimestamp: rateFromText,
       };
     } catch {
       // JSONでない行は生ログとして扱う
       return {
         raw: line,
-        text: line,
         rateLimitTimestamp: extractRateLimitTimestamp(line),
       };
     }
@@ -108,8 +113,15 @@ export class CodexStreamProcessor {
     if (compactText) {
       return compactText;
     }
-    return flattenText(json.item) || flattenText(json.delta) ||
-      flattenText(json.command_output);
+    // Only explicit user-facing messages belong in Discord. Tool output,
+    // reasoning, raw RPC notifications and unknown events remain in local logs.
+    const item = asRecord(json.item);
+    if (eventType === "progress") return flattenText(item?.text);
+    if (
+      eventType === "item.completed" && item?.type === "agent_message" &&
+      item.phase === "commentary"
+    ) return flattenText(item.text);
+    return "";
   }
 
   private extractCompactProgressText(json: Record<string, unknown>): string {
@@ -173,7 +185,7 @@ export class CodexStreamProcessor {
       const item = asRecord(json.item);
       if (!item) return "";
 
-      if (item.type === "agent_message") {
+      if (item.type === "agent_message" && item.phase !== "commentary") {
         return flattenText(item);
       }
 

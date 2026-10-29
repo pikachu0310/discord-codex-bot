@@ -1,7 +1,10 @@
 import { assertEquals } from "std/assert/mod.ts";
 import { dirname, fromFileUrl } from "std/path/mod.ts";
 import { ok } from "neverthrow";
-import type { CodexCommandExecutor } from "../src/worker/codex-executor.ts";
+import type {
+  CodexCommandExecutor,
+  CodexExecutionOptions,
+} from "../src/worker/codex-executor.ts";
 import { Worker } from "../src/worker/worker.ts";
 import {
   type WorkerState,
@@ -17,7 +20,7 @@ async function createTestDir(prefix: string): Promise<string> {
 }
 
 class FakeCodexExecutor implements CodexCommandExecutor {
-  public readonly executedArgs: string[][] = [];
+  public readonly executedOptions: CodexExecutionOptions[] = [];
 
   constructor(
     private readonly lines: readonly string[],
@@ -27,26 +30,32 @@ class FakeCodexExecutor implements CodexCommandExecutor {
   ) {}
 
   async executeStreaming(
-    args: string[],
-    _cwd: string,
+    options: CodexExecutionOptions,
     onData: (data: Uint8Array) => void,
   ) {
-    this.executedArgs.push(args);
+    this.executedOptions.push(options);
     const encoder = new TextEncoder();
     onData(encoder.encode(this.lines.join("\n") + "\n"));
     if (this.outputLastMessage !== undefined) {
-      const outputArgIndex = args.indexOf("--output-last-message");
-      const outputPath = args[outputArgIndex + 1];
-      await Deno.writeTextFile(outputPath, this.outputLastMessage);
+      onData(
+        encoder.encode(
+          JSON.stringify({ type: "result", result: this.outputLastMessage }) +
+            "\n",
+        ),
+      );
     }
     return Promise.resolve(ok({
       code: this.code,
       stderr: new TextEncoder().encode(this.stderr),
     }));
   }
+
+  sendInput(): Promise<boolean> {
+    return Promise.resolve(false);
+  }
 }
 
-Deno.test("Worker: 最終応答候補のagent_messageも進捗として送信する", async () => {
+Deno.test("Worker: 途中経過と最終回答を分け、最終回答を重複送信しない", async () => {
   const baseDir = await createTestDir("worker_test_");
   const worktreePath = await createTestDir("worker_worktree_");
   try {
@@ -76,6 +85,7 @@ Deno.test("Worker: 最終応答候補のagent_messageも進捗として送信す
         item: {
           id: "item_0",
           type: "agent_message",
+          phase: "commentary",
           text: "途中ログです。",
         },
       }),
@@ -107,7 +117,7 @@ Deno.test("Worker: 最終応答候補のagent_messageも進捗として送信す
     assertEquals(result.isOk(), true);
     assertEquals(result._unsafeUnwrap(), "最終返信です。");
     assertEquals(progress.includes("途中ログです。"), true);
-    assertEquals(progress.includes("最終返信です。"), true);
+    assertEquals(progress.includes("最終返信です。"), false);
   } finally {
     await Deno.remove(baseDir, { recursive: true });
     await Deno.remove(worktreePath, { recursive: true });
@@ -278,7 +288,7 @@ Deno.test("Worker: Codex非ゼロ終了時に診断情報を返してrawログ�
           },
         }),
       ],
-      "last message側の失敗理由です。",
+      "result側の失敗理由です。",
       1,
       "stderr側の失敗理由です。",
     );
@@ -294,7 +304,7 @@ Deno.test("Worker: Codex非ゼロ終了時に診断情報を返してrawログ�
     }
     assertEquals(error.error.includes("終了コード: 1"), true);
     assertEquals(error.error.includes("stderr側の失敗理由です。"), true);
-    assertEquals(error.error.includes("last message側の失敗理由です。"), true);
+    assertEquals(error.error.includes("result側の失敗理由です。"), true);
     assertEquals(error.error.includes("stdout側の失敗理由です。"), true);
     assertEquals(error.error.includes("保存ログ:"), true);
   } finally {
@@ -303,7 +313,7 @@ Deno.test("Worker: Codex非ゼロ終了時に診断情報を返してrawログ�
   }
 });
 
-Deno.test("Worker: TMPDIRが壊れていてもWORK_BASE_DIRの一時ファイルを使う", async () => {
+Deno.test("Worker: TMPDIRが壊れていてもApp Serverの最終返信を取得する", async () => {
   const baseDir = await createTestDir("worker_test_");
   const worktreePath = await createTestDir("worker_worktree_");
   const originalTmpDir = Deno.env.get("TMPDIR");
@@ -336,12 +346,7 @@ Deno.test("Worker: TMPDIRが壊れていてもWORK_BASE_DIRの一時ファイル
     assertEquals(result.isOk(), true);
     assertEquals(result._unsafeUnwrap(), "ファイル由来の最終返信です。");
 
-    const args = executor.executedArgs[0];
-    const outputPath = args[args.indexOf("--output-last-message") + 1];
-    assertEquals(
-      outputPath.startsWith(`${workspaceManager.getTempDir()}/`),
-      true,
-    );
+    assertEquals(executor.executedOptions[0].cwd, worktreePath);
   } finally {
     if (originalTmpDir === undefined) {
       Deno.env.delete("TMPDIR");
@@ -351,4 +356,130 @@ Deno.test("Worker: TMPDIRが壊れていてもWORK_BASE_DIRの一時ファイル
     await Deno.remove(baseDir, { recursive: true });
     await Deno.remove(worktreePath, { recursive: true });
   }
+});
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => resolve = r);
+  return { promise, resolve };
+}
+
+class ControlledExecutor implements CodexCommandExecutor {
+  readonly started = deferred<void>();
+  readonly finished = deferred<void>();
+  readonly inputs: CodexExecutionOptions[] = [];
+  readonly executions: CodexExecutionOptions[] = [];
+  accepting = true;
+
+  async executeStreaming(
+    options: CodexExecutionOptions,
+    onData: (data: Uint8Array) => void,
+  ) {
+    this.executions.push(options);
+    this.started.resolve();
+    onData(
+      new TextEncoder().encode(
+        JSON.stringify({ type: "thread.started", thread_id: "new-session" }) +
+          "\n",
+      ),
+    );
+    if (this.executions.length === 1) await this.finished.promise;
+    onData(
+      new TextEncoder().encode(
+        JSON.stringify({ type: "result", result: "完了" }) + "\n",
+      ),
+    );
+    return ok({ code: 0, stderr: new Uint8Array() });
+  }
+
+  sendInput(options: CodexExecutionOptions): Promise<boolean> {
+    this.inputs.push(options);
+    return Promise.resolve(this.accepting);
+  }
+}
+
+async function withControlledWorker(
+  test: (
+    worker: Worker,
+    executor: ControlledExecutor,
+    manager: WorkspaceManager,
+  ) => Promise<void>,
+) {
+  const baseDir = await createTestDir("worker_concurrent_");
+  try {
+    const manager = new WorkspaceManager(baseDir);
+    await manager.initialize();
+    const executor = new ControlledExecutor();
+    const now = new Date().toISOString();
+    const worker = new Worker(
+      {
+        workerName: "test",
+        threadId: "thread-concurrent",
+        repository: { fullName: "owner/repo", org: "owner", repo: "repo" },
+        repositoryLocalPath: baseDir,
+        worktreePath: baseDir,
+        sessionId: null,
+        status: "active",
+        createdAt: now,
+        lastActiveAt: now,
+      },
+      manager,
+      executor,
+    );
+    await test(worker, executor, manager);
+  } finally {
+    await Deno.remove(baseDir, { recursive: true });
+  }
+}
+
+Deno.test("Worker: 開始通知中の連続投稿も同じ実行に渡す", async () => {
+  await withControlledWorker(async (worker, executor) => {
+    worker.setPlanMode(true);
+    const progressGate = deferred<void>();
+    const run = worker.processMessage("最初", [], () => progressGate.promise);
+    assertEquals(worker.isRunning(), true);
+    const followup = worker.processMessage("追加");
+    progressGate.resolve();
+    const accepted = await followup;
+    assertEquals(accepted.isOk(), true);
+    assertEquals(executor.executions.length, 1);
+    assertEquals(executor.inputs.map((input) => input.prompt), ["追加"]);
+    assertEquals(
+      executor.executions[0].prompt.startsWith("You are in plan mode."),
+      true,
+    );
+    executor.finished.resolve();
+    assertEquals((await run)._unsafeUnwrap(), "完了");
+    assertEquals(worker.isRunning(), false);
+  });
+});
+
+Deno.test("Worker: 完了直前に受け付けられなかった投稿を保存済みセッションで再実行する", async () => {
+  await withControlledWorker(async (worker, executor, manager) => {
+    executor.accepting = false;
+    const run = worker.processMessage("最初");
+    await executor.started.promise;
+    const followup = worker.processMessage("追加");
+    executor.finished.resolve();
+    await run;
+    assertEquals((await followup)._unsafeUnwrap(), "完了");
+    assertEquals(executor.executions.length, 2);
+    assertEquals(executor.executions[1].sessionId, "new-session");
+    assertEquals(
+      (await manager.loadWorkerState("thread-concurrent"))?.sessionId,
+      "new-session",
+    );
+  });
+});
+
+Deno.test("Worker: 開始通知中のstopでも新しいCodexを起動しない", async () => {
+  await withControlledWorker(async (worker, executor) => {
+    const progressGate = deferred<void>();
+    const run = worker.processMessage("最初", [], () => progressGate.promise);
+    assertEquals(await worker.stopExecution(), true);
+    progressGate.resolve();
+    assertEquals((await run)._unsafeUnwrap(), "⛔ Codex実行を中断しました。");
+    assertEquals(executor.executions.length, 0);
+    assertEquals(worker.isRunning(), false);
+  });
 });

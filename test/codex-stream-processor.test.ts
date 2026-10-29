@@ -74,10 +74,10 @@ Deno.test("CodexStreamProcessor: item.completed agent_messageから最終テキ�
   }));
 
   assertEquals(parsed.finalText, "OK");
-  assertEquals(parsed.text, "OK");
+  assertEquals(parsed.text, undefined);
 });
 
-Deno.test("CodexStreamProcessor: reasoning summaryを進捗テキストとして抽出できる", () => {
+Deno.test("CodexStreamProcessor: reasoning summaryはDiscordへ送信しない", () => {
   const processor = new CodexStreamProcessor();
   const parsed = processor.parseLine(JSON.stringify({
     type: "item.completed",
@@ -93,7 +93,7 @@ Deno.test("CodexStreamProcessor: reasoning summaryを進捗テキストとして
     },
   }));
 
-  assertEquals(parsed.text, "実装方針を確認しています。");
+  assertEquals(parsed.text, undefined);
   assertEquals(parsed.finalText, undefined);
 });
 
@@ -120,4 +120,52 @@ Deno.test("CodexStreamProcessor: compact完了イベントを進捗テキスト�
 
   assertEquals(parsed.text, "コンテキスト圧縮が完了しました。");
   assertEquals(parsed.finalText, undefined);
+});
+
+Deno.test("CodexStreamProcessor: ツール出力と未知のイベントを返信へ混ぜない", () => {
+  const processor = new CodexStreamProcessor();
+  for (
+    const packet of [
+      {
+        type: "item.completed",
+        item: {
+          type: "command_execution",
+          stdout: "private log",
+          stderr: "private error",
+        },
+      },
+      {
+        type: "item.completed",
+        item: { type: "mcp_tool_call", content: [{ text: "tool result" }] },
+      },
+      {
+        method: "item/completed",
+        params: {
+          item: { type: "commandExecution", aggregatedOutput: "raw RPC" },
+        },
+      },
+      { type: "unknown", item: { text: "unknown output" } },
+    ]
+  ) {
+    const parsed = processor.parseLine(JSON.stringify(packet));
+    assertEquals(parsed.text, undefined);
+    assertEquals(parsed.finalText, undefined);
+  }
+  assertEquals(processor.parseLine("raw subprocess log").text, undefined);
+  const progress = processor.parseLine(JSON.stringify({
+    type: "item.completed",
+    item: { type: "agent_message", phase: "commentary", text: "進めています" },
+  }));
+  assertEquals(progress.text, "進めています");
+  assertEquals(progress.finalText, undefined);
+  const final = processor.parseLine(JSON.stringify({
+    type: "item.completed",
+    item: {
+      type: "agent_message",
+      phase: "final_answer",
+      text: "完了しました",
+    },
+  }));
+  assertEquals(final.text, undefined);
+  assertEquals(final.finalText, "完了しました");
 });

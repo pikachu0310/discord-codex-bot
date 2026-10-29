@@ -10,6 +10,7 @@ import { splitIntoDiscordChunks } from "../utils/discord-message.ts";
 import { WorkerState, WorkspaceManager } from "../workspace/workspace.ts";
 import {
   type CodexCommandExecutor,
+  type CodexExecutionOptions,
   DefaultCodexCommandExecutor,
 } from "./codex-executor.ts";
 import {
@@ -19,7 +20,13 @@ import {
 import { MessageFormatter } from "./message-formatter.ts";
 import { SessionLogger } from "./session-logger.ts";
 import { WorkerConfiguration } from "./worker-configuration.ts";
-import type { IWorker, WorkerError } from "./types.ts";
+import type {
+  IWorker,
+  PendingQuestion,
+  ProgressCallback,
+  QuestionAnswer,
+  WorkerError,
+} from "./types.ts";
 
 const DIAGNOSTIC_SECTION_LIMIT = 1800;
 const DIAGNOSTIC_TEXT_LIMIT = 5000;
@@ -29,7 +36,6 @@ interface CodexFailureDetailOptions {
   reason?: string;
   stderr?: string;
   rawOutput: string;
-  outputLastMessagePath?: string | null;
   sessionLogPath?: string | null;
 }
 
@@ -72,6 +78,8 @@ export class Worker implements IWorker {
   private codexProcess: Deno.ChildProcess | null = null;
   private abortController: AbortController | null = null;
   private isExecuting = false;
+  private activeExecution: Promise<Result<string, WorkerError>> | null = null;
+  private executionReady: Promise<void> = Promise.resolve();
 
   constructor(
     private state: WorkerState,
@@ -89,21 +97,80 @@ export class Worker implements IWorker {
   async processMessage(
     message: string,
     attachments: readonly SavedAttachment[] = [],
-    onProgress: (content: string) => Promise<void> = async () => {},
+    onProgress: ProgressCallback = async () => {},
     onReaction?: (emoji: string) => Promise<void>,
+    questionAnswer?: QuestionAnswer,
+  ): Promise<Result<string, WorkerError>> {
+    const active = this.activeExecution;
+    if (active) {
+      await this.executionReady;
+      try {
+        const answering = !!this.getPendingQuestion();
+        const accepted = await this.codexExecutor.sendInput(
+          this.buildExecutionOptions(
+            message,
+            attachments,
+            false,
+            questionAnswer,
+          ),
+        );
+        if (accepted) {
+          await onReaction?.(answering ? "✅" : "📨").catch(() => {});
+          return ok(
+            answering
+              ? "✅ 回答を受け付けました。作業を続けます。"
+              : "📨 実行中のCodexにメッセージを届けました。",
+          );
+        }
+      } catch (error) {
+        return err({
+          type: "CODEX_EXECUTION_FAILED",
+          error: `追加入力を送信できませんでした: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        });
+      }
+      // The active turn completed while the input was being prepared.
+      await active;
+      return await this.processMessage(
+        message,
+        attachments,
+        onProgress,
+        onReaction,
+        questionAnswer,
+      );
+    }
+
+    let ready!: () => void;
+    this.executionReady = new Promise((resolve) => ready = resolve);
+    const execution = this.executeMessage(
+      message,
+      attachments,
+      onProgress,
+      onReaction,
+      ready,
+      questionAnswer,
+    );
+    this.activeExecution = execution;
+    try {
+      return await execution;
+    } finally {
+      ready();
+      this.activeExecution = null;
+    }
+  }
+
+  private async executeMessage(
+    message: string,
+    attachments: readonly SavedAttachment[],
+    onProgress: ProgressCallback,
+    onReaction: ((emoji: string) => Promise<void>) | undefined,
+    ready: () => void,
+    questionAnswer?: QuestionAnswer,
   ): Promise<Result<string, WorkerError>> {
     if (!this.state.repository || !this.state.worktreePath) {
       return err({ type: "REPOSITORY_NOT_SET" });
     }
-
-    if (onReaction) {
-      await onReaction("⚙️").catch(() => {});
-    }
-
-    await this.reportProgress(
-      onProgress,
-      "🤖 Codexが処理を開始しました...",
-    );
 
     this.isExecuting = true;
     this.abortController = new AbortController();
@@ -113,11 +180,15 @@ export class Worker implements IWorker {
     let allOutput = "";
     let finalResult = "";
     let pendingBuffer = "";
-    let outputLastMessagePath: string | null = null;
+    let progressTail = Promise.resolve();
     let rateLimitTimestamp: number | undefined;
+    let sessionSave: Promise<Result<void, WorkerError>> = Promise.resolve(
+      ok(undefined),
+    );
+    const decoder = new TextDecoder();
 
     const onData = (chunk: Uint8Array) => {
-      const text = new TextDecoder().decode(chunk, { stream: true });
+      const text = decoder.decode(chunk, { stream: true });
       allOutput += text;
       pendingBuffer += text;
       const lines = pendingBuffer.split("\n");
@@ -132,43 +203,47 @@ export class Worker implements IWorker {
 
         if (parsed.sessionId) {
           newSessionId = parsed.sessionId;
+          this.state.sessionId = parsed.sessionId;
+          sessionSave = this.save();
         }
 
         if (parsed.finalText) {
           finalResult = parsed.finalText;
         }
 
-        if (parsed.text) {
+        if (parsed.text && parsed.questions?.length) {
+          progressTail = progressTail.then(() =>
+            this.reportProgress(onProgress, parsed.text!, parsed.questions)
+          );
+        } else if (parsed.text) {
           const formatted = this.formatter.formatResponse(parsed.text);
           for (const chunkText of splitIntoDiscordChunks(formatted)) {
             if (!chunkText.trim()) continue;
-            void this.reportProgress(onProgress, chunkText);
+            progressTail = progressTail.then(() =>
+              this.reportProgress(onProgress, chunkText)
+            );
           }
         }
       }
     };
 
     try {
-      outputLastMessagePath = await this.workspaceManager.createTempFile({
-        prefix: "discord-codex-last-message-",
-        suffix: ".txt",
-      });
-
-      const args = this.buildExecutionArgs(
-        message,
-        attachments,
-        outputLastMessagePath,
-      );
-
-      const execResult = await this.codexExecutor.executeStreaming(
-        args,
-        this.state.worktreePath,
+      if (onReaction) await onReaction("⚙️").catch(() => {});
+      await this.reportProgress(onProgress, "🤖 Codexが処理を開始しました...");
+      if (this.abortController.signal.aborted) {
+        return ok("⛔ Codex実行を中断しました。");
+      }
+      const execution = this.codexExecutor.executeStreaming(
+        this.buildExecutionOptions(message, attachments, true, questionAnswer),
         onData,
         this.abortController.signal,
         (process) => {
           this.codexProcess = process;
         },
       );
+
+      ready();
+      const execResult = await execution;
 
       if (pendingBuffer.trim()) {
         const parsed = this.streamProcessor.parseLine(pendingBuffer.trim());
@@ -186,6 +261,12 @@ export class Worker implements IWorker {
       }
 
       if (execResult.isErr()) {
+        rateLimitTimestamp ??= extractRateLimitTimestamp(
+          allOutput + "\n" +
+            (execResult.error.type === "STREAM_PROCESSING_ERROR"
+              ? execResult.error.error
+              : execResult.error.stderr),
+        );
         if (rateLimitTimestamp !== undefined) {
           return err({
             type: "RATE_LIMIT",
@@ -204,7 +285,6 @@ export class Worker implements IWorker {
               ? execResult.error.stderr
               : execResult.error.error,
             rawOutput: allOutput,
-            outputLastMessagePath,
             sessionLogPath: logPath,
           }),
         );
@@ -232,7 +312,6 @@ export class Worker implements IWorker {
             exitCode: code,
             stderr: stderrText,
             rawOutput: allOutput,
-            outputLastMessagePath,
             sessionLogPath: logPath,
           }),
         );
@@ -240,10 +319,6 @@ export class Worker implements IWorker {
 
       if (newSessionId && newSessionId !== this.state.sessionId) {
         this.state.sessionId = newSessionId;
-      }
-
-      if (!finalResult.trim()) {
-        finalResult = await this.readOutputLastMessage(outputLastMessagePath);
       }
 
       await this.saveRawCodexOutput(allOutput, this.state.sessionId);
@@ -266,7 +341,6 @@ export class Worker implements IWorker {
         await this.createCodexExecutionFailedError({
           reason: error instanceof Error ? error.message : String(error),
           rawOutput: allOutput,
-          outputLastMessagePath,
           sessionLogPath: logPath,
         }),
       );
@@ -274,67 +348,51 @@ export class Worker implements IWorker {
       this.isExecuting = false;
       this.abortController = null;
       this.codexProcess = null;
-      if (outputLastMessagePath) {
-        await Deno.remove(outputLastMessagePath).catch(() => {});
-      }
+      ready();
+      await sessionSave;
+      await progressTail;
     }
   }
 
   private async reportProgress(
-    onProgress: (content: string) => Promise<void>,
+    onProgress: ProgressCallback,
     content: string,
+    questions?: readonly PendingQuestion[],
   ): Promise<void> {
     try {
-      await onProgress(content);
+      await onProgress(content, questions);
     } catch (error) {
       console.error("[Worker] progress callback failed", error);
     }
   }
 
-  private buildExecutionArgs(
+  private buildExecutionOptions(
     prompt: string,
     attachments: readonly SavedAttachment[] = [],
-    outputLastMessagePath?: string | null,
-  ): string[] {
+    includeModeInstructions = true,
+    questionAnswer?: QuestionAnswer,
+  ): CodexExecutionOptions {
     const promptWithAttachments = formatPromptWithAttachments(
       prompt,
       attachments,
     );
-    const imagePaths = getCodexImagePaths(attachments);
-
-    if (!this.isPlanMode()) {
-      return this.configuration.buildCodexArgs(
-        promptWithAttachments,
+    return {
+      ...this.configuration.buildExecutionOptions(
+        includeModeInstructions && this.isPlanMode()
+          ? [
+            "You are in plan mode.",
+            "Return an implementation plan before coding.",
+            "If coding is needed, include clear ordered steps.",
+            "",
+            promptWithAttachments,
+          ].join("\n")
+          : promptWithAttachments,
+        this.state.worktreePath!,
         this.state.sessionId,
-        imagePaths,
-        outputLastMessagePath,
-      );
-    }
-
-    const planPrompt = [
-      "You are in plan mode.",
-      "Return an implementation plan before coding.",
-      "If coding is needed, include clear ordered steps.",
-      "",
-      promptWithAttachments,
-    ].join("\n");
-    return this.configuration.buildCodexArgs(
-      planPrompt,
-      this.state.sessionId,
-      imagePaths,
-      outputLastMessagePath,
-    );
-  }
-
-  private async readOutputLastMessage(path: string): Promise<string> {
-    try {
-      return await Deno.readTextFile(path);
-    } catch (error) {
-      if (error instanceof Deno.errors.NotFound) {
-        return "";
-      }
-      throw error;
-    }
+        getCodexImagePaths(attachments),
+      ),
+      ...(questionAnswer ? { questionAnswer } : {}),
+    };
   }
 
   private async saveRawCodexOutput(
@@ -397,13 +455,6 @@ export class Worker implements IWorker {
       lines.push("", "stderr:", truncateDiagnostic(options.stderr));
     }
 
-    const lastMessage = options.outputLastMessagePath
-      ? await this.readOutputLastMessage(options.outputLastMessagePath)
-      : "";
-    if (lastMessage.trim()) {
-      lines.push("", "Codex最終メッセージ:", truncateDiagnostic(lastMessage));
-    }
-
     const diagnostic = this.extractOutputDiagnostics(options.rawOutput);
     if (diagnostic) {
       lines.push("", "Codex出力の手がかり:", diagnostic);
@@ -456,6 +507,18 @@ export class Worker implements IWorker {
       return message;
     }
     return "";
+  }
+
+  isRunning(): boolean {
+    return this.activeExecution !== null;
+  }
+
+  getPendingQuestion(): string | null {
+    return this.codexExecutor.getPendingQuestion?.() ?? null;
+  }
+
+  getPendingQuestions(): readonly PendingQuestion[] {
+    return this.codexExecutor.getPendingQuestions?.() ?? [];
   }
 
   getName(): string {
@@ -515,35 +578,32 @@ export class Worker implements IWorker {
   async stopExecution(
     onProgress?: (content: string) => Promise<void>,
   ): Promise<boolean> {
-    if (!this.isExecuting || !this.codexProcess) {
+    if (!this.isExecuting || !this.abortController) {
       return false;
     }
 
-    try {
-      this.abortController?.abort();
-      this.codexProcess.kill("SIGTERM");
-
-      const process = this.codexProcess;
-      const timer = setTimeout(() => {
-        try {
-          process.kill("SIGKILL");
-        } catch {
-          // ignore
-        }
-      }, PROCESS.TERMINATION_TIMEOUT_MS);
-
-      await process.status.catch(() => {});
-      clearTimeout(timer);
-
-      if (onProgress) {
-        await onProgress("⛔ Codex実行を中断しました。");
+    this.abortController.abort();
+    const process = this.codexProcess;
+    const timer = setTimeout(() => {
+      try {
+        process?.kill("SIGKILL");
+      } catch {
+        // ignore
       }
-      return true;
+    }, PROCESS.TERMINATION_TIMEOUT_MS);
+
+    try {
+      // No child exists while startup progress is being delivered. Waiting
+      // there can deadlock a callback that itself requested cancellation.
+      if (process) await this.activeExecution;
     } finally {
-      this.isExecuting = false;
-      this.codexProcess = null;
-      this.abortController = null;
+      clearTimeout(timer);
     }
+
+    if (onProgress) {
+      await onProgress("⛔ Codex実行を中断しました。");
+    }
+    return true;
   }
 
   isPlanMode(): boolean {

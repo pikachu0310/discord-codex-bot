@@ -1,3 +1,4 @@
+import type { ProgressCallback, QuestionAnswer } from "../worker/types.ts";
 import { err, ok, Result } from "neverthrow";
 import type { SavedAttachment } from "../attachments.ts";
 import type { WorkerError } from "../worker/types.ts";
@@ -47,8 +48,9 @@ export class MessageRouter {
     threadId: string,
     message: string,
     attachments: readonly SavedAttachment[] = [],
-    onProgress?: (content: string) => Promise<void>,
+    onProgress?: ProgressCallback,
     onReaction?: (emoji: string) => Promise<void>,
+    questionAnswer?: QuestionAnswer,
   ): Promise<Result<string | DiscordMessage, MessageRouterError>> {
     const worker = this.workerManager.getWorker(threadId);
     if (!worker) {
@@ -66,6 +68,7 @@ export class MessageRouter {
         attachments,
         onProgress,
         onReaction,
+        questionAnswer,
       );
     } catch (error) {
       return err({

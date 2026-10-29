@@ -140,3 +140,34 @@ Deno.test("stripTerminalControlSequences: ANSI制御シーケンスを除去す�
     "5h limit",
   );
 });
+
+Deno.test("parseCodexRateLimits: codexの枠を選び、usedから残量を算出する", async () => {
+  const { parseCodexRateLimits } = await import("../src/codex-status.ts");
+  const result = parseCodexRateLimits({
+    rateLimits: {
+      secondary: {
+        usedPercent: 99,
+        windowDurationMins: 10080,
+        resetsAt: 1793318400,
+      },
+    },
+    rateLimitsByLimitId: {
+      codex: {
+        primary: {
+          usedPercent: 20,
+          windowDurationMins: 300,
+          resetsAt: 1793318400,
+        },
+        secondary: {
+          usedPercent: 35,
+          windowDurationMins: 10080,
+          resetsAt: 1793404800,
+        },
+      },
+    },
+  }, "Asia/Tokyo");
+  assertEquals(result.isOk(), true);
+  assertEquals(result._unsafeUnwrap().fiveHour?.percentLeft, 80);
+  assertEquals(result._unsafeUnwrap().weekly.percentLeft, 65);
+  assertEquals(parseCodexRateLimits({}).isErr(), true);
+});

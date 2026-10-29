@@ -1,3 +1,4 @@
+import type { ProgressCallback, QuestionAnswer } from "../worker/types.ts";
 import { err, ok, Result } from "neverthrow";
 import type { SavedAttachment } from "../attachments.ts";
 import type { IWorker } from "../worker/types.ts";
@@ -102,8 +103,9 @@ export class Admin implements IAdmin {
     threadId: string,
     message: string,
     attachments: readonly SavedAttachment[] = [],
-    onProgress?: (content: string) => Promise<void>,
+    onProgress?: ProgressCallback,
     onReaction?: (emoji: string) => Promise<void>,
+    questionAnswer?: QuestionAnswer,
   ): Promise<Result<string | DiscordMessage, AdminError>> {
     let result: Result<string | DiscordMessage, MessageRouterError>;
     try {
@@ -113,6 +115,7 @@ export class Admin implements IAdmin {
         attachments,
         onProgress,
         onReaction,
+        questionAnswer,
       );
     } catch (error) {
       return err({
@@ -181,7 +184,8 @@ export class Admin implements IAdmin {
   }
 
   async terminateThread(threadId: string): Promise<Result<void, AdminError>> {
-    this.workerManager.removeWorker(threadId);
+    const worker = this.workerManager.removeWorker(threadId);
+    await worker?.stopExecution();
     await this.workspaceManager.removeWorktree(threadId);
 
     const workerState = await this.workspaceManager.loadWorkerState(threadId);

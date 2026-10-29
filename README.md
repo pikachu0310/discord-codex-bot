@@ -4,7 +4,7 @@ Discord のスレッドから Codex CLI を動かすための Bot です。
 
 `/start owner/repo` で GitHub
 リポジトリごとの作業スレッドを作成し、そのスレッドに投稿されたメッセージを Codex
-CLI へ渡します。Codex の途中出力と最終応答は Discord
+CLI へ渡します。Codex の進捗メッセージと最終応答は Discord
 に返され、同じスレッド内では Codex セッションを継続できます。
 
 ## できること
@@ -90,7 +90,7 @@ gh auth login
    - Create Public Threads
    - Read Message History
    - Add Reactions
-   - Manage Threads（`/close` を使う場合）
+   - Manage Threads（Botが `/close` でスレッドを閉じるために必要）
 
 ## セットアップ
 
@@ -148,31 +148,45 @@ Bot は対象リポジトリを `WORK_BASE_DIR/repositories/` に clone
 ### 2. スレッドへ依頼を書く
 
 作成されたスレッドに通常の Discord メッセージを投稿します。Bot はその内容を
-Codex CLI に渡し、進捗と応答を同じスレッドへ返します。
+Codex App Server に渡し、進捗と応答を同じスレッドへ返します。
 初回応答の送信後、会話内容を要約して Discord スレッド名と作業ブランチ名を
 自動更新します。
 
 画像添付がある場合、Bot は添付ファイルを `WORK_BASE_DIR/attachments/`
-に保存し、対応する画像パスを Codex CLI の `--image` として渡します。
+に保存し、対応する画像パスを Codex の画像入力として渡します。
 
 ### 3. 継続して会話する
 
-同じスレッドへの次の投稿は、前回の Codex セッションを `resume`
-して実行されます。スレッドごとにセッションと作業コピーが分かれるため、別スレッドの作業と混ざりません。
+作業中の追加投稿は、実行中の Codex にそのまま渡されます。同じセッションの Codex
+プロセスを重複起動しません。完了後の投稿は、前回のセッションを再開して実行します。
+スレッドごとにセッションと作業コピーが分かれるため、別スレッドの作業と混ざりません。
+
+Codex が質問した場合は、同じスレッドに通常のメッセージで回答してください。
+選択肢付きの質問には、表示されたDiscordのボタンで回答できます。 番号（例:
+`2`）や自由文での回答も使えます。回答済み・取り消し済みのボタンは
+無効になり、同じボタンを連続して押しても回答を重複送信しません。
+Bot再起動前の古いボタンは使用できませんが、同じスレッドに自由文で返信して会話を続けられます。
+通常の質問も作業中の非同期の質問も、生成された時点で表示します。 質問待ち中も
+`/stop` で中断できます。質問が出た後に作業がいったん完了しても、
+同じスレッドの回答から会話を続けられます。
+
+依頼につくリアクションは、👀 受付、⚙️ 作業中、❓ 回答待ち、✅ 完了、 ❌
+エラーを表します。途中の状態は完了後に残しません。 `/status`
+では、このスレッドの作業状態とモード、利用枠を確認できます。
 
 `!` から始まるメッセージは Bot
 が無視するため、同じスレッド内でユーザー同士の会話に使えます。
 
 ## スラッシュコマンド
 
-| コマンド                       | 実行場所       | 説明                                                                               |
-| ------------------------------ | -------------- | ---------------------------------------------------------------------------------- |
-| `/start repository:owner/repo` | 通常チャンネル | リポジトリを準備し、新しい作業スレッドを作ります。                                 |
-| `/stop`                        | 作業スレッド   | 実行中の Codex プロセスを中断します。                                              |
-| `/plan`                        | 作業スレッド   | 次回以降の依頼で、実装前に計画を返すよう Codex へ指示します。                      |
-| `/status`                      | どこでも       | Codex の 5h / Weekly limit を確認します。                                          |
-| `/active-threads`              | どこでも       | 現在アクティブな作業スレッドから、実行者宛てに silent mention を送ります。         |
-| `/close`                       | 作業スレッド   | Worker を終了し、Discord スレッドをクローズします。Manage Threads 権限が必要です。 |
+| コマンド                       | 実行場所       | 説明                                                                          |
+| ------------------------------ | -------------- | ----------------------------------------------------------------------------- |
+| `/start repository:owner/repo` | 通常チャンネル | リポジトリを準備し、新しい作業スレッドを作ります。                            |
+| `/stop`                        | 作業スレッド   | 実行中の Codex プロセスを中断します。                                         |
+| `/plan`                        | 作業スレッド   | プランモードを切り替えます。もう一度実行すると通常モードに戻ります。          |
+| `/status`                      | どこでも       | Codex の 5h / Weekly limit を確認します。                                     |
+| `/active-threads`              | どこでも       | 現在アクティブな作業スレッドから、実行者宛てに silent mention を送ります。    |
+| `/close`                       | 作業スレッド   | Worker を終了し、Discord スレッドをクローズします。@everyone で実行できます。 |
 
 `/start` の repository 入力は、すでに Bot
 が取得済みのローカルリポジトリを候補としてオートコンプリートします。
@@ -197,29 +211,25 @@ WORK_BASE_DIR/
 このディレクトリは Bot が直接読み書きします。複数環境で同じ `WORK_BASE_DIR`
 を共有しないでください。
 
-## Codex CLI の実行形式
+## Codex との通信
 
-Bot は概ね次の形式で Codex CLI を実行します。
+作業実行には `codex app-server` の標準入出力を使います。 初期化後、新規会話は
+`thread/start`、継続会話は `thread/resume`、 作業開始は `turn/start`
+で処理します。作業中の追加入力は `turn/steer` で渡します。 質問
+(`item/tool/requestUserInput`) への回答は、対応するリクエストへ返します。
+作業終了と追加投稿が重なった場合は、終了を待って次の作業として受け付けます。
 
-新規セッション:
+Discordへ送るのは、Codexの進捗メッセージ・質問・最終回答です。
+コマンドの標準出力・標準エラー、ツールの結果、推論や未知のイベントは返信しません。
+最終回答は途中経過と重複させずに送信し、生の通信ログは従来どおり
+`WORK_BASE_DIR/sessions/` に保存します。 利用枠は `account/rateLimits/read`
+から取得します。
 
-```text
-codex --search exec --json --color never --dangerously-bypass-approvals-and-sandbox --output-last-message <path> -- "<prompt>"
-```
-
-継続セッション:
-
-```text
-codex --search exec --json --color never --dangerously-bypass-approvals-and-sandbox resume --output-last-message <path> -- <session_id> "<prompt>"
-```
-
-画像添付がある場合は `--image <path>`
-が追加されます。`CODEX_APPEND_SYSTEM_PROMPT` を設定している場合は
-`--append-system-prompt` も追加されます。
-
-画像の有無にかかわらず、すべてのオプションの後、本文（継続時は session
-ID）の直前に `--` を置きます。`--help` や `-x`
-などで始まる本文も位置引数として渡します。
+画像添付は `localImage` 入力、`CODEX_APPEND_SYSTEM_PROMPT` は
+`developerInstructions` として渡します。本文は構造化データで送るため、 `--help`
+や `-x` などで始まる本文もそのまま渡せます。 従来どおり、承認ポリシーは
+`never`、サンドボックスは `danger-full-access` です。 App Server
+の上記メソッドに対応した Codex CLI が必要です。
 
 Bot は `--model` や `model_reasoning_effort` を指定しません。モデル、reasoning
 effort、profile などの Codex CLI 設定は、Bot を起動するユーザーの Codex CLI
