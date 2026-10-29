@@ -181,7 +181,8 @@ export class Admin implements IAdmin {
   }
 
   async terminateThread(threadId: string): Promise<Result<void, AdminError>> {
-    this.workerManager.removeWorker(threadId);
+    const worker = this.workerManager.removeWorker(threadId);
+    await worker?.stopExecution();
     await this.workspaceManager.removeWorktree(threadId);
 
     const workerState = await this.workspaceManager.loadWorkerState(threadId);

@@ -223,6 +223,7 @@ const codexStatusProvider = new CodexStatusProvider({
 });
 
 const client = new Client({
+  allowedMentions: { parse: [], repliedUser: false },
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
@@ -337,6 +338,11 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
       return;
     }
     await interaction.deferReply();
+    const worker = admin.getWorker(interaction.channel.id);
+    if (worker.isOk() && !worker.value.isRunning?.()) {
+      await interaction.editReply("現在、実行中の作業はありません。");
+      return;
+    }
     const result = await admin.stopExecution(interaction.channel.id);
     if (result.isErr()) {
       await interaction.editReply("中断対象が見つかりませんでした。");
@@ -352,12 +358,18 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
       return;
     }
     await interaction.deferReply();
-    const result = await admin.setPlanMode(interaction.channel.id, true);
+    const worker = admin.getWorker(interaction.channel.id);
+    const enabled = worker.isOk() ? !worker.value.isPlanMode() : true;
+    const result = await admin.setPlanMode(interaction.channel.id, enabled);
     if (result.isErr()) {
       await interaction.editReply("プランモード設定に失敗しました。");
       return;
     }
-    await interaction.editReply("✅ プランモードを有効化しました。");
+    await interaction.editReply(
+      enabled
+        ? "✅ プランモードを有効化しました。次の依頼では実装前に計画を作ります。もう一度 /plan で通常モードに戻せます。"
+        : "✅ 通常モードに戻しました。次の依頼から適用します。",
+    );
     return;
   }
 
@@ -402,13 +414,33 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
 
 async function handleStatus(interaction: ChatInputCommandInteraction) {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const worker = interaction.channel?.isThread()
+    ? admin.getWorker(interaction.channel.id)
+    : null;
+  const current = worker?.isOk() ? worker.value : null;
+  const question = current?.getPendingQuestion?.();
+  const state = current
+    ? [
+      question
+        ? `❓ 回答待ち: ${question}`
+        : current.isRunning?.()
+        ? "⚙️ 作業中（/stop で中断できます）"
+        : "✅ 次の依頼を待っています。",
+      `モード: ${current.isPlanMode() ? "プラン" : "通常"}`,
+    ].join("\n")
+    : "";
+
   const result = await getAndApplyCodexStatus(Deno.cwd());
   if (result.isErr()) {
-    await interaction.editReply(formatCodexStatusError(result.error));
+    await interaction.editReply(
+      [state, formatCodexStatusError(result.error)].filter(Boolean).join("\n"),
+    );
     return;
   }
   await interaction.editReply(
-    `\`\`\`kotlin\n${formatCodexStatus(result.value)}\n\`\`\``,
+    [state, `\`\`\`kotlin\n${formatCodexStatus(result.value)}\n\`\`\``].filter(
+      Boolean,
+    ).join("\n"),
   );
 }
 
@@ -614,7 +646,7 @@ async function handleStart(interaction: ChatInputCommandInteraction) {
   await interaction.editReply(`${message}\nスレッド: ${thread.toString()}`);
   await sendThreadMessage(
     thread,
-    `こんにちは！ 準備バッチリだよ！ ${repository.fullName} について何でも聞いてね～！`,
+    `${repository.fullName} の作業を始められます。依頼や添付ファイルをこのスレッドに送ってください。\n作業中の追記・質問への回答もここへ送れます。中断は /stop、計画から始める場合は /plan。人同士の会話は先頭に ! を付けるとBotは反応しません。`,
   );
 }
 
@@ -663,6 +695,13 @@ client.on(Events.MessageCreate, (message) => {
 
     let lastProgressMessageUrl: string | null = null;
     const onProgress = async (content: string) => {
+      if (content.startsWith("❓")) await onReaction("❓");
+      else if (
+        workerResult.value.isRunning?.() &&
+        !workerResult.value.getPendingQuestion?.()
+      ) {
+        await onReaction("⚙️");
+      }
       for (const chunk of chunkDiscordContent(content)) {
         const sent = await sendThreadMessage(thread, {
           content: chunk,
@@ -673,12 +712,20 @@ client.on(Events.MessageCreate, (message) => {
     };
 
     const onReaction = async (emoji: string) => {
+      for (const previous of ["👀", "⚙️", "❓"]) {
+        if (previous === emoji) continue;
+        const reaction = message.reactions.cache.find((r) =>
+          r.emoji.name === previous
+        );
+        if (reaction?.me && client.user) {
+          await reaction.users.remove(client.user.id).catch(() => {});
+        }
+      }
       await message.react(emoji).catch(() => {});
     };
 
     const isRunning = workerResult.value.isRunning?.() ?? false;
-    // Status capture uses a separate TUI; do not delay replies to questions or
-    // allow its startup delay to reorder messages sent to the worker.
+    // Fetch usage in parallel; question answers must reach Codex immediately.
     const startStatusPromise = isRunning
       ? Promise.resolve(null)
       : getAndApplyCodexStatus(Deno.cwd());
@@ -705,15 +752,24 @@ client.on(Events.MessageCreate, (message) => {
       }
     }
 
+    if (!isRunning) void thread.sendTyping().catch(() => {});
+    const typingTimer = !isRunning
+      ? setInterval(() => {
+        if (!workerResult.value.getPendingQuestion?.()) {
+          void thread.sendTyping().catch(() => {});
+        }
+      }, 7000)
+      : undefined;
     const result = await admin.routeMessage(
       threadId,
       message.content,
       savedAttachments,
       onProgress,
       onReaction,
-    );
+    ).finally(() => clearInterval(typingTimer));
 
     if (result.isErr()) {
+      await onReaction("❌");
       if (result.error.type === "WORKER_NOT_FOUND") {
         const threadInfo = await workspaceManager.loadThreadInfo(threadId);
         if (threadInfo) {
@@ -751,8 +807,14 @@ client.on(Events.MessageCreate, (message) => {
       ? null
       : await getAndApplyCodexStatus(Deno.cwd());
     const endStatus = endStatusResult?.isOk() ? endStatusResult.value : null;
+    if (!isRunning) {
+      await onReaction(workerResult.value.getPendingQuestion?.() ? "❓" : "✅");
+    }
     const finalReply = replyContent.trim() === MESSAGES.NO_FINAL_RESPONSE &&
-        lastProgressMessageUrl
+        workerResult.value.getPendingQuestion?.()
+      ? "❓ 質問への回答を待っています。このスレッドに返信してください。"
+      : replyContent.trim() === MESSAGES.NO_FINAL_RESPONSE &&
+          lastProgressMessageUrl
       ? `Codexの最終テキストを取得できなかったため、直近の出力を参照してください。\n> ${lastProgressMessageUrl}`
       : replyContent;
     const statusUnavailableNote = formatCodexStatusUnavailableNote(

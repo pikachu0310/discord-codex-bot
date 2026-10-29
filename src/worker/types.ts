@@ -24,6 +24,7 @@ export interface IWorker {
     onReaction?: (emoji: string) => Promise<void>,
   ): Promise<import("neverthrow").Result<string, WorkerError>>;
   isRunning?(): boolean;
+  getPendingQuestion?(): string | null;
   getName(): string;
   getRepository(): import("../git-utils.ts").GitRepository | null;
   setRepository(

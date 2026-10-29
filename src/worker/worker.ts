@@ -98,17 +98,24 @@ export class Worker implements IWorker {
     if (active) {
       await this.executionReady;
       try {
+        const answering = !!this.getPendingQuestion();
         const accepted = await this.codexExecutor.sendInput(
           this.buildExecutionOptions(message, attachments, false),
         );
         if (accepted) {
-          await onReaction?.("📨").catch(() => {});
-          return ok("📨 実行中のCodexにメッセージを届けました。");
+          await onReaction?.(answering ? "✅" : "📨").catch(() => {});
+          return ok(
+            answering
+              ? "✅ 回答を受け付けました。作業を続けます。"
+              : "📨 実行中のCodexにメッセージを届けました。",
+          );
         }
       } catch (error) {
         return err({
           type: "CODEX_EXECUTION_FAILED",
-          error: `追加入力の送信に失敗しました: ${formatUnknownError(error)}`,
+          error: `追加入力を送信できませんでした: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
         });
       }
       // The active turn completed while the input was being prepared.
@@ -482,6 +489,10 @@ export class Worker implements IWorker {
     return this.activeExecution !== null;
   }
 
+  getPendingQuestion(): string | null {
+    return this.codexExecutor.getPendingQuestion?.() ?? null;
+  }
+
   getName(): string {
     return this.state.workerName;
   }
@@ -553,8 +564,13 @@ export class Worker implements IWorker {
       }
     }, PROCESS.TERMINATION_TIMEOUT_MS);
 
-    if (process) await process.status.catch(() => {});
-    clearTimeout(timer);
+    try {
+      // No child exists while startup progress is being delivered. Waiting
+      // there can deadlock a callback that itself requested cancellation.
+      if (process) await this.activeExecution;
+    } finally {
+      clearTimeout(timer);
+    }
 
     if (onProgress) {
       await onProgress("⛔ Codex実行を中断しました。");

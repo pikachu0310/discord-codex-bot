@@ -81,7 +81,31 @@ for await (
       turn: { id: "turn-1" },
     });
     await send({ id: packet.id, result: { turn: { id: "turn-1" } } });
-    if (scenario === "questions" || scenario === "resolved") {
+    if (scenario === "async-questions" || scenario === "async-idle") {
+      const text = packet.params.input[0].text;
+      if (text.startsWith("質問「")) {
+        await notify("test/answer-input", { text });
+        await complete();
+      } else {
+        await notify("item/completed", {
+          threadId: "thread-1",
+          item: {
+            id: "async-question-1",
+            type: "agentMessage",
+            phase: "final_answer",
+            delivery: "async",
+            text: "確認用の色は？\n- 青\n- 緑",
+            questions: [{ title: "確認用の色は？", options: ["青", "緑"] }],
+          },
+        });
+        if (scenario === "async-idle") {
+          await notify("turn/completed", {
+            threadId: "thread-1",
+            turn: { id: "turn-1", status: "completed" },
+          });
+        }
+      }
+    } else if (scenario === "questions" || scenario === "resolved") {
       await send({
         id: "question-request",
         method: "item/tool/requestUserInput",

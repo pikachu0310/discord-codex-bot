@@ -189,3 +189,48 @@ Deno.test("App Server: 質問待機中のstopをturn/interruptで処理する", 
     false,
   );
 });
+
+Deno.test("App Server: 非同期の質問を終了前に一度表示し、番号回答で継続する", async () => {
+  const test = setup("async-questions");
+  const question = test.wait("question");
+  const run = test.run();
+  await question;
+  assertEquals(test.executor.getPendingQuestion(), "確認用の色は？");
+  const progress = test.packets.filter((p) => p.type === "progress");
+  assertEquals(progress.length, 1);
+  assertEquals(
+    (progress[0].item as { text: string }).text.match(/確認用の色は？/g)
+      ?.length,
+    1,
+  );
+  await assertRejects(
+    () => test.executor.sendInput({ prompt: "9", cwd: Deno.cwd() }),
+    Error,
+    "1〜2",
+  );
+  assertEquals(test.executor.getPendingQuestion(), "確認用の色は？");
+  assertEquals(
+    await test.executor.sendInput({ prompt: "2", cwd: Deno.cwd() }),
+    true,
+  );
+  assertEquals((await run).isOk(), true);
+  const steer = test.params("test/steer") as { input: { text: string }[] };
+  assertEquals(steer.input[0].text, "質問「確認用の色は？」への回答: 緑");
+  assertEquals(test.executor.getPendingQuestion(), null);
+});
+
+Deno.test("App Server: 非同期の質問はturn完了後も番号回答で同じ会話を再開できる", async () => {
+  const test = setup("async-idle");
+  assertEquals((await test.run()).isOk(), true);
+  assertEquals(test.executor.getPendingQuestion(), "確認用の色は？");
+  const result = await test.executor.executeStreaming({
+    prompt: "2",
+    cwd: Deno.cwd(),
+    sessionId: "thread-1",
+  }, (data) => test.packets.push(JSON.parse(new TextDecoder().decode(data))));
+  assertEquals(result.isOk(), true);
+  assertEquals(test.params("test/answer-input"), {
+    text: "質問「確認用の色は？」への回答: 緑",
+  });
+  assertEquals(test.executor.getPendingQuestion(), null);
+});

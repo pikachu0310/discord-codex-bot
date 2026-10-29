@@ -25,6 +25,7 @@ export interface CodexCommandExecutor {
   ): Promise<ExecutionResult>;
   // false means the turn ended before this input could be accepted.
   sendInput(options: CodexExecutionOptions): Promise<boolean>;
+  getPendingQuestion?(): string | null;
 }
 
 type Packet = Record<string, unknown>;
@@ -176,6 +177,7 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
   };
   private ready: Promise<void> = Promise.resolve();
   private inputTail: Promise<unknown> = Promise.resolve();
+  private asyncQuestions: { title: string; options?: string[] }[] = [];
 
   constructor(
     private readonly spawnProcess = (cwd: string) =>
@@ -260,10 +262,12 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
       const threadId = (thread.thread as Packet).id as string;
       emit({ type: "thread.started", thread_id: threadId });
       this.active = { connection, threadId, turnId: "", requests: [], emit };
+      const priorQuestions = this.asyncQuestions;
       const result = await connection.request("turn/start", {
         threadId,
-        input: this.buildInput(options),
+        input: this.buildInput(this.withAsyncAnswer(options)),
       });
+      if (this.asyncQuestions === priorQuestions) this.asyncQuestions = [];
       // turn/started can arrive before the response.
       if (!ended) {
         this.active.turnId = (result.turn as Packet).id as string;
@@ -304,6 +308,14 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
       const choice = /^\d+$/.test(options.prompt.trim())
         ? question.options?.[Number(options.prompt.trim()) - 1]?.label
         : undefined;
+      if (
+        /^\d+$/.test(options.prompt.trim()) && question.options?.length &&
+        !choice
+      ) {
+        throw new Error(
+          `1〜${question.options.length}の番号、または自由文で回答してください。`,
+        );
+      }
       const answer = choice ?? options.prompt;
       const answers = {
         ...request.answers,
@@ -325,11 +337,13 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
       if (!options.imagePaths?.length) return true;
     }
     try {
+      const priorQuestions = this.asyncQuestions;
       await active.connection.request("turn/steer", {
         threadId: active.threadId,
         expectedTurnId: active.turnId,
-        input: this.buildInput(options),
+        input: this.buildInput(this.withAsyncAnswer(options)),
       });
+      if (this.asyncQuestions === priorQuestions) this.asyncQuestions = [];
       return true;
     } catch (error) {
       // A completion notification may race the steer request. The Worker will
@@ -343,6 +357,33 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
       ) return false;
       throw error;
     }
+  }
+
+  getPendingQuestion(): string | null {
+    const request = this.active?.requests[0];
+    return request?.questions[request.index]?.question ??
+      this.asyncQuestions[0]?.title ?? null;
+  }
+
+  private withAsyncAnswer(
+    options: CodexExecutionOptions,
+  ): CodexExecutionOptions {
+    if (this.asyncQuestions.length !== 1) return options;
+    const question = this.asyncQuestions[0];
+    const number = /^\d+$/.test(options.prompt.trim())
+      ? Number(options.prompt.trim())
+      : null;
+    if (number === null || !question.options?.length) return options;
+    const choice = question.options[number - 1];
+    if (!choice) {
+      throw new Error(
+        `1〜${question.options.length}の番号、または自由文で回答してください。`,
+      );
+    }
+    return {
+      ...options,
+      prompt: `質問「${question.title}」への回答: ${choice}`,
+    };
   }
 
   private buildInput(options: CodexExecutionOptions): Packet[] {
@@ -402,25 +443,45 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
     } else if (packet.method === "item/completed") {
       const item = params.item as Packet;
       if (item.type === "agentMessage") {
+        const questions = (item.questions ?? []) as {
+          title: string;
+          options?: string[];
+        }[];
+        // request_user_input_async is delivered as a final_answer item while
+        // the turn is still running. Publishing it only at turn end deadlocks
+        // users who cannot see the question Codex is waiting for.
+        if (questions.length) {
+          this.asyncQuestions = questions;
+          active.emit({
+            type: "progress",
+            item: {
+              text: [
+                ...questions.map((question, index) =>
+                  [
+                    `❓ ${
+                      questions.length > 1
+                        ? `（${index + 1}/${questions.length}）`
+                        : ""
+                    }${question.title}`,
+                    ...(question.options ?? []).map((option, i) =>
+                      `${i + 1}. ${option}`
+                    ),
+                  ].join("\n")
+                ),
+                questions.length === 1
+                  ? "このスレッドに番号または自由文で回答してください。回答を受けて作業を続けます。"
+                  : "このスレッドに各質問への回答を送ってください。回答を受けて作業を続けます。",
+              ].join("\n\n"),
+            },
+          });
+          return;
+        }
         active.emit({
           type: "item.completed",
           item: {
             type: "agent_message",
             phase: item.phase,
-            text: [
-              item.text,
-              ...((item.questions ?? []) as {
-                title: string;
-                options?: string[];
-              }[]).map((question) =>
-                [
-                  question.title,
-                  ...(question.options ?? []).map((option, index) =>
-                    `${index + 1}. ${option}`
-                  ),
-                ].join("\n")
-              ),
-            ].filter(Boolean).join("\n"),
+            text: item.text,
           },
         });
       } else if (item.type === "plan" || item.type === "contextCompaction") {
