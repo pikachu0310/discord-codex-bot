@@ -1,6 +1,7 @@
 import {
   ActivityType,
   AutocompleteInteraction,
+  ButtonInteraction,
   ChatInputCommandInteraction,
   Client,
   Events,
@@ -14,6 +15,11 @@ import {
   ThreadChannel,
 } from "discord.js";
 import type { Message } from "discord.js";
+import type { PendingQuestion } from "./worker/types.ts";
+import {
+  buildQuestionButtons,
+  parseQuestionButton,
+} from "./utils/discord-question.ts";
 import type {
   AttachmentDownloadInput,
   SavedAttachment,
@@ -157,6 +163,143 @@ async function replyToThreadMessage(message: Message, content: string) {
   return sent;
 }
 
+const questionMessages = new Map<
+  string,
+  Map<string, {
+    question: PendingQuestion;
+    message: Message;
+  }>
+>();
+
+async function refreshQuestionButtons(threadId: string) {
+  const messages = questionMessages.get(threadId);
+  if (!messages) return;
+  const worker = admin.getWorker(threadId);
+  const pending = new Set(
+    worker.isOk()
+      ? worker.value.getPendingQuestions?.().map((question) => question.id) ??
+        []
+      : [],
+  );
+  for (const [id, entry] of messages) {
+    if (pending.has(id)) continue;
+    await entry.message.edit({
+      components: buildQuestionButtons(entry.question, true),
+    }).catch((error) =>
+      console.error("[QuestionButtons] disable failed", error)
+    );
+    messages.delete(id);
+  }
+  if (!messages.size) questionMessages.delete(threadId);
+}
+
+async function postProgress(
+  thread: ThreadChannel,
+  content: string,
+  questions?: readonly PendingQuestion[],
+): Promise<string | null> {
+  let lastUrl: string | null = null;
+  const entries = questions?.length
+    ? questions.map((question) => ({
+      question,
+      content: questions.length === 1 ? content : [
+        `❓ （${question.position}/${question.total}）${question.title}`,
+        ...question.options.map((option, index) => `${index + 1}. ${option}`),
+        "ボタンで選択するか、このスレッドに自由文で回答してください。",
+      ].join("\n"),
+    }))
+    : [{ question: undefined, content }];
+  for (const entry of entries) {
+    const chunks = chunkDiscordContent(entry.content);
+    for (let index = 0; index < chunks.length; index++) {
+      const components = entry.question && index === chunks.length - 1
+        ? buildQuestionButtons(entry.question)
+        : [];
+      const sent = await sendThreadMessage(thread, {
+        content: chunks[index],
+        components,
+        flags: MessageFlags.SuppressNotifications,
+      });
+      lastUrl = sent.url;
+      if (entry.question && components.length) {
+        const messages = questionMessages.get(thread.id) ?? new Map();
+        messages.set(entry.question.id, {
+          question: entry.question,
+          message: sent,
+        });
+        questionMessages.set(thread.id, messages);
+      }
+    }
+  }
+  await refreshQuestionButtons(thread.id);
+  return lastUrl;
+}
+
+async function handleQuestionButton(interaction: ButtonInteraction) {
+  const answer = parseQuestionButton(interaction.customId);
+  if (!answer) return;
+  const thread = interaction.channel;
+  const worker = thread?.isThread() ? admin.getWorker(thread.id) : null;
+  const question = worker?.isOk()
+    ? worker.value.getPendingQuestions?.().find((q) =>
+      q.id === answer.questionId
+    )
+    : undefined;
+  const label = question?.options[answer.optionIndex];
+  if (!thread?.isThread() || label === undefined) {
+    await interaction.reply({
+      content:
+        "この質問は回答済み、取り消し済み、またはBot再起動前のものです。必要なら同じスレッドに自由文で返信してください。",
+      flags: MessageFlags.Ephemeral,
+    });
+    await interaction.message.edit({ components: [] }).catch(() => {});
+    return;
+  }
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const wasRunning = worker?.isOk() && worker.value.isRunning?.();
+  try {
+    // The executor checks the question ID again inside its serialized input
+    // queue so a click racing another click or a text reply cannot answer twice.
+    const result = await admin.routeMessage(
+      thread.id,
+      label,
+      [],
+      (content, questions) =>
+        postProgress(thread, content, questions).then(() => {}),
+      undefined,
+      answer,
+    );
+    if (result.isErr()) {
+      await interaction.editReply(
+        "この回答は送信できませんでした。先に別の回答が受け付けられたか、質問が終了した可能性があります。スレッドの最新の質問を確認してください。",
+      );
+      return;
+    }
+    await sendThreadMessage(thread, {
+      content: `✅ 回答「${label}」を受け付けました。`,
+      flags: MessageFlags.SuppressNotifications,
+    });
+    if (!wasRunning) {
+      const content = typeof result.value === "string"
+        ? result.value
+        : result.value.content;
+      for (const chunk of chunkDiscordContent(content)) {
+        await sendThreadMessage(thread, chunk);
+      }
+    }
+    await interaction.editReply(
+      "回答を送りました。続きはこのスレッドに表示されます。",
+    );
+  } catch (error) {
+    logUnexpectedError("QuestionButton", error);
+    await interaction.editReply(
+      "回答の送信に失敗しました。同じスレッドに自由文で返信してください。",
+    ).catch(() => {});
+  } finally {
+    await refreshQuestionButtons(thread.id);
+  }
+}
+
 function formatUnknownError(error: unknown): string {
   if (error instanceof Error) {
     return error.stack ?? error.message;
@@ -290,6 +433,10 @@ client.once(Events.ClientReady, (readyClient) => {
 
 client.on(Events.InteractionCreate, (interaction) => {
   void runSafely("InteractionCreate", async () => {
+    if (interaction.isButton()) {
+      await handleQuestionButton(interaction);
+      return;
+    }
     if (interaction.isAutocomplete()) {
       await handleAutocomplete(interaction);
       return;
@@ -348,6 +495,7 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
       await interaction.editReply("中断対象が見つかりませんでした。");
       return;
     }
+    await refreshQuestionButtons(interaction.channel.id);
     await interaction.editReply("⛔ 実行を中断しました。");
     return;
   }
@@ -395,6 +543,7 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
       await interaction.editReply("クローズに失敗しました。");
       return;
     }
+    await refreshQuestionButtons(thread.id);
     try {
       if (!thread.archived) {
         await thread.setArchived(true, "/close command");
@@ -694,7 +843,10 @@ client.on(Events.MessageCreate, (message) => {
     }
 
     let lastProgressMessageUrl: string | null = null;
-    const onProgress = async (content: string) => {
+    const onProgress = async (
+      content: string,
+      questions?: readonly PendingQuestion[],
+    ) => {
       if (content.startsWith("❓")) await onReaction("❓");
       else if (
         workerResult.value.isRunning?.() &&
@@ -702,13 +854,8 @@ client.on(Events.MessageCreate, (message) => {
       ) {
         await onReaction("⚙️");
       }
-      for (const chunk of chunkDiscordContent(content)) {
-        const sent = await sendThreadMessage(thread, {
-          content: chunk,
-          flags: MessageFlags.SuppressNotifications,
-        });
-        lastProgressMessageUrl = sent.url;
-      }
+      lastProgressMessageUrl = await postProgress(thread, content, questions) ??
+        lastProgressMessageUrl;
     };
 
     const onReaction = async (emoji: string) => {
@@ -766,7 +913,10 @@ client.on(Events.MessageCreate, (message) => {
       savedAttachments,
       onProgress,
       onReaction,
-    ).finally(() => clearInterval(typingTimer));
+    ).finally(async () => {
+      clearInterval(typingTimer);
+      await refreshQuestionButtons(threadId);
+    });
 
     if (result.isErr()) {
       await onReaction("❌");

@@ -234,3 +234,110 @@ Deno.test("App Server: 非同期の質問はturn完了後も番号回答で同�
   });
   assertEquals(test.executor.getPendingQuestion(), null);
 });
+
+Deno.test("App Server: 選択ボタンと自由文を併用し、前の質問への再回答を拒否する", async () => {
+  const test = setup("questions");
+  const shown = test.wait("question");
+  const run = test.run();
+  await shown;
+  const first = test.executor.getPendingQuestions()[0];
+  assertEquals(first.options, ["日本語", "英語"]);
+  const answer = { questionId: first.id, optionIndex: 1 };
+  assertEquals(
+    await test.executor.sendInput({
+      prompt: "",
+      cwd: Deno.cwd(),
+      questionAnswer: answer,
+    }),
+    true,
+  );
+  assertEquals(test.executor.getPendingQuestions()[0].id === first.id, false);
+  await assertRejects(
+    () =>
+      test.executor.sendInput({
+        prompt: "",
+        cwd: Deno.cwd(),
+        questionAnswer: answer,
+      }),
+    Error,
+    "回答済み",
+  );
+  assertEquals(
+    await test.executor.sendInput({ prompt: "自由な補足", cwd: Deno.cwd() }),
+    true,
+  );
+  assertEquals((await run).isOk(), true);
+  assertEquals(test.params("test/answer"), {
+    answers: {
+      language: { answers: ["英語"] },
+      details: { answers: ["自由な補足"] },
+    },
+  });
+});
+
+Deno.test("App Server: 同じボタンの連続クリックを一度だけ届ける", async () => {
+  const test = setup("async-questions");
+  const shown = test.wait("question");
+  const run = test.run();
+  await shown;
+  const question = test.executor.getPendingQuestions()[0];
+  const options = {
+    prompt: "",
+    cwd: Deno.cwd(),
+    questionAnswer: { questionId: question.id, optionIndex: 1 },
+  };
+  const results = await Promise.allSettled([
+    test.executor.sendInput(options),
+    test.executor.sendInput(options),
+  ]);
+  assertEquals(
+    results.filter((result) => result.status === "fulfilled" && result.value)
+      .length,
+    1,
+  );
+  assertEquals((await run).isOk(), true);
+  assertEquals(
+    test.packets.filter((packet) => packet.method === "test/steer").length,
+    1,
+  );
+  assertEquals(
+    (test.params("test/steer") as { input: { text: string }[] }).input[0].text,
+    "質問「確認用の色は？」への回答: 緑",
+  );
+});
+
+Deno.test("App Server: turn終了後のボタンで再開し、回答済みボタンは新規実行しない", async () => {
+  const test = setup("async-idle");
+  assertEquals((await test.run()).isOk(), true);
+  const question = test.executor.getPendingQuestions()[0];
+  const options = {
+    prompt: "",
+    cwd: Deno.cwd(),
+    sessionId: "thread-1",
+    questionAnswer: { questionId: question.id, optionIndex: 1 },
+  };
+  const collect = (data: Uint8Array) =>
+    test.packets.push(JSON.parse(new TextDecoder().decode(data)));
+  assertEquals(
+    (await test.executor.executeStreaming(options, collect)).isOk(),
+    true,
+  );
+  const count = test.packets.length;
+  assertEquals(
+    (await test.executor.executeStreaming(options, collect)).isErr(),
+    true,
+  );
+  assertEquals(test.packets.length, count);
+});
+
+Deno.test("App Server: stopで質問ボタンも取り消す", async () => {
+  const test = setup("async-questions");
+  const abort = new AbortController();
+  const shown = test.wait("question");
+  const run = test.run(abort.signal);
+  await shown;
+  assertEquals(test.executor.getPendingQuestions().length, 1);
+  abort.abort();
+  await run;
+  assertEquals(test.executor.getPendingQuestions(), []);
+});

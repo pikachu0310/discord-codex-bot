@@ -1,3 +1,5 @@
+import type { PendingQuestion } from "./types.ts";
+
 export interface ParsedCodexLine {
   raw: string;
   json?: Record<string, unknown>;
@@ -5,6 +7,7 @@ export interface ParsedCodexLine {
   finalText?: string;
   sessionId?: string;
   rateLimitTimestamp?: number;
+  questions?: readonly PendingQuestion[];
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -73,6 +76,9 @@ export class CodexStreamProcessor {
         text: text || undefined,
         finalText: finalText || undefined,
         sessionId,
+        questions: json.type === "progress" && Array.isArray(json.questions)
+          ? json.questions as unknown as PendingQuestion[]
+          : undefined,
         rateLimitTimestamp: rateFromText,
       };
     } catch {

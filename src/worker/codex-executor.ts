@@ -1,7 +1,11 @@
 import { err, ok, Result } from "neverthrow";
 import { TextLineStream } from "std/streams/text_line_stream.ts";
 import { CODEX, PROCESS } from "../constants.ts";
-import type { CodexExecutorError } from "./types.ts";
+import type {
+  CodexExecutorError,
+  PendingQuestion,
+  QuestionAnswer,
+} from "./types.ts";
 
 export interface CodexExecutionOptions {
   prompt: string;
@@ -9,6 +13,7 @@ export interface CodexExecutionOptions {
   sessionId?: string | null;
   imagePaths?: readonly string[];
   developerInstructions?: string;
+  questionAnswer?: QuestionAnswer;
 }
 
 type ExecutionResult = Result<
@@ -26,6 +31,7 @@ export interface CodexCommandExecutor {
   // false means the turn ended before this input could be accepted.
   sendInput(options: CodexExecutionOptions): Promise<boolean>;
   getPendingQuestion?(): string | null;
+  getPendingQuestions?(): readonly PendingQuestion[];
 }
 
 type Packet = Record<string, unknown>;
@@ -38,6 +44,7 @@ interface Question {
 }
 interface InputRequest {
   id: RequestId;
+  key: string;
   questions: Question[];
   answers: Record<string, { answers: string[] }>;
   index: number;
@@ -177,7 +184,7 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
   };
   private ready: Promise<void> = Promise.resolve();
   private inputTail: Promise<unknown> = Promise.resolve();
-  private asyncQuestions: { title: string; options?: string[] }[] = [];
+  private asyncQuestions: PendingQuestion[] = [];
 
   constructor(
     private readonly spawnProcess = (cwd: string) =>
@@ -231,6 +238,8 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
     };
     try {
       if (abortSignal?.aborted) return failure("実行が中断されました");
+      const preparedInput = this.withAsyncAnswer(options);
+      const priorQuestions = this.asyncQuestions;
       connection = new AppServerConnection(
         this.spawnProcess(options.cwd),
         (packet) => {
@@ -262,12 +271,11 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
       const threadId = (thread.thread as Packet).id as string;
       emit({ type: "thread.started", thread_id: threadId });
       this.active = { connection, threadId, turnId: "", requests: [], emit };
-      const priorQuestions = this.asyncQuestions;
       const result = await connection.request("turn/start", {
         threadId,
-        input: this.buildInput(this.withAsyncAnswer(options)),
+        input: this.buildInput(preparedInput),
       });
-      if (this.asyncQuestions === priorQuestions) this.asyncQuestions = [];
+      this.consumeAsyncAnswer(options, priorQuestions);
       // turn/started can arrive before the response.
       if (!ended) {
         this.active.turnId = (result.turn as Packet).id as string;
@@ -286,6 +294,7 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
         if (stderr.trim()) emit({ type: "error", message: stderr });
       }
       if (abortSignal?.aborted) {
+        this.asyncQuestions = [];
         emit({ type: "result", result: "⛔ Codex実行を中断しました。" });
       }
     }
@@ -303,6 +312,10 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
     const active = this.active;
     if (!active?.turnId) return false;
     const request = active.requests[0];
+    if (options.questionAnswer) {
+      const selected = this.selectedAnswer(options.questionAnswer);
+      options = { ...options, prompt: selected.label };
+    }
     if (request) {
       const question = request.questions[request.index];
       const choice = /^\d+$/.test(options.prompt.trim())
@@ -343,7 +356,7 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
         expectedTurnId: active.turnId,
         input: this.buildInput(this.withAsyncAnswer(options)),
       });
-      if (this.asyncQuestions === priorQuestions) this.asyncQuestions = [];
+      this.consumeAsyncAnswer(options, priorQuestions);
       return true;
     } catch (error) {
       // A completion notification may race the steer request. The Worker will
@@ -360,20 +373,60 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
   }
 
   getPendingQuestion(): string | null {
+    return this.getPendingQuestions()[0]?.title ?? null;
+  }
+
+  getPendingQuestions(): readonly PendingQuestion[] {
     const request = this.active?.requests[0];
-    return request?.questions[request.index]?.question ??
-      this.asyncQuestions[0]?.title ?? null;
+    if (request) {
+      const question = request.questions[request.index];
+      return [{
+        id: `${request.key}:${request.index}`,
+        title: question.question,
+        options: (question.options ?? []).map((option) => option.label),
+        position: request.index + 1,
+        total: request.questions.length,
+      }];
+    }
+    return this.asyncQuestions;
+  }
+
+  private selectedAnswer(answer: QuestionAnswer) {
+    const question = this.getPendingQuestions().find((q) =>
+      q.id === answer.questionId
+    );
+    const label = question?.options[answer.optionIndex];
+    if (
+      !question || !Number.isInteger(answer.optionIndex) || label === undefined
+    ) {
+      throw new Error(
+        "この質問は回答済み、取り消し済み、または期限切れです。必要ならスレッドに自由文で返信してください。",
+      );
+    }
+    return { question, label };
   }
 
   private withAsyncAnswer(
     options: CodexExecutionOptions,
   ): CodexExecutionOptions {
+    if (options.questionAnswer) {
+      const { question, label } = this.selectedAnswer(options.questionAnswer);
+      if (!this.asyncQuestions.some((q) => q.id === question.id)) {
+        throw new Error(
+          "この質問は終了しています。スレッドに自由文で返信してください。",
+        );
+      }
+      return {
+        ...options,
+        prompt: `質問「${question.title}」への回答: ${label}`,
+      };
+    }
     if (this.asyncQuestions.length !== 1) return options;
     const question = this.asyncQuestions[0];
     const number = /^\d+$/.test(options.prompt.trim())
       ? Number(options.prompt.trim())
       : null;
-    if (number === null || !question.options?.length) return options;
+    if (number === null || !question.options.length) return options;
     const choice = question.options[number - 1];
     if (!choice) {
       throw new Error(
@@ -384,6 +437,20 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
       ...options,
       prompt: `質問「${question.title}」への回答: ${choice}`,
     };
+  }
+
+  private consumeAsyncAnswer(
+    options: CodexExecutionOptions,
+    priorQuestions: readonly PendingQuestion[],
+  ) {
+    const answered = new Set(
+      options.questionAnswer
+        ? [options.questionAnswer.questionId]
+        : priorQuestions.map((question) => question.id),
+    );
+    this.asyncQuestions = this.asyncQuestions.filter((question) =>
+      !answered.has(question.id)
+    );
   }
 
   private buildInput(options: CodexExecutionOptions): Packet[] {
@@ -400,13 +467,16 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
     const question = request.questions[request.index];
     this.active?.emit({
       type: "progress",
+      questions: this.getPendingQuestions(),
       item: {
         text: [
           `❓ ${question.header}: ${question.question}`,
           ...(question.options ?? []).map((option, index) =>
             `${index + 1}. ${option.label} — ${option.description}`
           ),
-          "このスレッドに番号または自由文で回答してください。" +
+          (question.options?.length
+            ? "ボタンで選択するか、このスレッドに番号または自由文で回答してください。"
+            : "このスレッドに自由文で回答してください。") +
           (request.questions.length > 1
             ? `（${request.index + 1}/${request.questions.length}問目）`
             : ""),
@@ -451,9 +521,16 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
         // the turn is still running. Publishing it only at turn end deadlocks
         // users who cannot see the question Codex is waiting for.
         if (questions.length) {
-          this.asyncQuestions = questions;
+          this.asyncQuestions = questions.map((question, index) => ({
+            id: `${crypto.randomUUID()}:0`,
+            title: question.title,
+            options: question.options ?? [],
+            position: index + 1,
+            total: questions.length,
+          }));
           active.emit({
             type: "progress",
+            questions: this.asyncQuestions,
             item: {
               text: [
                 ...questions.map((question, index) =>
@@ -469,7 +546,9 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
                   ].join("\n")
                 ),
                 questions.length === 1
-                  ? "このスレッドに番号または自由文で回答してください。回答を受けて作業を続けます。"
+                  ? questions[0].options?.length
+                    ? "ボタンで選択するか、このスレッドに番号または自由文で回答してください。回答を受けて作業を続けます。"
+                    : "このスレッドに自由文で回答してください。回答を受けて作業を続けます。"
                   : "このスレッドに各質問への回答を送ってください。回答を受けて作業を続けます。",
               ].join("\n\n"),
             },
@@ -496,6 +575,7 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
       if (packet.method === "item/tool/requestUserInput") {
         const request: InputRequest = {
           id: packet.id as RequestId,
+          key: crypto.randomUUID(),
           questions: params.questions as Question[],
           answers: {},
           index: 0,

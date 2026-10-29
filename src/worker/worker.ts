@@ -20,7 +20,13 @@ import {
 import { MessageFormatter } from "./message-formatter.ts";
 import { SessionLogger } from "./session-logger.ts";
 import { WorkerConfiguration } from "./worker-configuration.ts";
-import type { IWorker, WorkerError } from "./types.ts";
+import type {
+  IWorker,
+  PendingQuestion,
+  ProgressCallback,
+  QuestionAnswer,
+  WorkerError,
+} from "./types.ts";
 
 const DIAGNOSTIC_SECTION_LIMIT = 1800;
 const DIAGNOSTIC_TEXT_LIMIT = 5000;
@@ -91,8 +97,9 @@ export class Worker implements IWorker {
   async processMessage(
     message: string,
     attachments: readonly SavedAttachment[] = [],
-    onProgress: (content: string) => Promise<void> = async () => {},
+    onProgress: ProgressCallback = async () => {},
     onReaction?: (emoji: string) => Promise<void>,
+    questionAnswer?: QuestionAnswer,
   ): Promise<Result<string, WorkerError>> {
     const active = this.activeExecution;
     if (active) {
@@ -100,7 +107,12 @@ export class Worker implements IWorker {
       try {
         const answering = !!this.getPendingQuestion();
         const accepted = await this.codexExecutor.sendInput(
-          this.buildExecutionOptions(message, attachments, false),
+          this.buildExecutionOptions(
+            message,
+            attachments,
+            false,
+            questionAnswer,
+          ),
         );
         if (accepted) {
           await onReaction?.(answering ? "✅" : "📨").catch(() => {});
@@ -125,6 +137,7 @@ export class Worker implements IWorker {
         attachments,
         onProgress,
         onReaction,
+        questionAnswer,
       );
     }
 
@@ -136,6 +149,7 @@ export class Worker implements IWorker {
       onProgress,
       onReaction,
       ready,
+      questionAnswer,
     );
     this.activeExecution = execution;
     try {
@@ -149,9 +163,10 @@ export class Worker implements IWorker {
   private async executeMessage(
     message: string,
     attachments: readonly SavedAttachment[],
-    onProgress: (content: string) => Promise<void>,
+    onProgress: ProgressCallback,
     onReaction: ((emoji: string) => Promise<void>) | undefined,
     ready: () => void,
+    questionAnswer?: QuestionAnswer,
   ): Promise<Result<string, WorkerError>> {
     if (!this.state.repository || !this.state.worktreePath) {
       return err({ type: "REPOSITORY_NOT_SET" });
@@ -196,7 +211,11 @@ export class Worker implements IWorker {
           finalResult = parsed.finalText;
         }
 
-        if (parsed.text) {
+        if (parsed.text && parsed.questions?.length) {
+          progressTail = progressTail.then(() =>
+            this.reportProgress(onProgress, parsed.text!, parsed.questions)
+          );
+        } else if (parsed.text) {
           const formatted = this.formatter.formatResponse(parsed.text);
           for (const chunkText of splitIntoDiscordChunks(formatted)) {
             if (!chunkText.trim()) continue;
@@ -215,7 +234,7 @@ export class Worker implements IWorker {
         return ok("⛔ Codex実行を中断しました。");
       }
       const execution = this.codexExecutor.executeStreaming(
-        this.buildExecutionOptions(message, attachments),
+        this.buildExecutionOptions(message, attachments, true, questionAnswer),
         onData,
         this.abortController.signal,
         (process) => {
@@ -336,11 +355,12 @@ export class Worker implements IWorker {
   }
 
   private async reportProgress(
-    onProgress: (content: string) => Promise<void>,
+    onProgress: ProgressCallback,
     content: string,
+    questions?: readonly PendingQuestion[],
   ): Promise<void> {
     try {
-      await onProgress(content);
+      await onProgress(content, questions);
     } catch (error) {
       console.error("[Worker] progress callback failed", error);
     }
@@ -350,25 +370,29 @@ export class Worker implements IWorker {
     prompt: string,
     attachments: readonly SavedAttachment[] = [],
     includeModeInstructions = true,
+    questionAnswer?: QuestionAnswer,
   ): CodexExecutionOptions {
     const promptWithAttachments = formatPromptWithAttachments(
       prompt,
       attachments,
     );
-    return this.configuration.buildExecutionOptions(
-      includeModeInstructions && this.isPlanMode()
-        ? [
-          "You are in plan mode.",
-          "Return an implementation plan before coding.",
-          "If coding is needed, include clear ordered steps.",
-          "",
-          promptWithAttachments,
-        ].join("\n")
-        : promptWithAttachments,
-      this.state.worktreePath!,
-      this.state.sessionId,
-      getCodexImagePaths(attachments),
-    );
+    return {
+      ...this.configuration.buildExecutionOptions(
+        includeModeInstructions && this.isPlanMode()
+          ? [
+            "You are in plan mode.",
+            "Return an implementation plan before coding.",
+            "If coding is needed, include clear ordered steps.",
+            "",
+            promptWithAttachments,
+          ].join("\n")
+          : promptWithAttachments,
+        this.state.worktreePath!,
+        this.state.sessionId,
+        getCodexImagePaths(attachments),
+      ),
+      ...(questionAnswer ? { questionAnswer } : {}),
+    };
   }
 
   private async saveRawCodexOutput(
@@ -491,6 +515,10 @@ export class Worker implements IWorker {
 
   getPendingQuestion(): string | null {
     return this.codexExecutor.getPendingQuestion?.() ?? null;
+  }
+
+  getPendingQuestions(): readonly PendingQuestion[] {
+    return this.codexExecutor.getPendingQuestions?.() ?? [];
   }
 
   getName(): string {
