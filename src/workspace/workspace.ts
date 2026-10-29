@@ -157,36 +157,41 @@ export class WorkspaceManager {
       const path = join(dir, savedName);
 
       const response = await fetch(attachment.url);
-      if (!response.ok) {
-        await response.body?.cancel().catch(() => {});
-        throw new Error(
-          `Attachment download failed: ${attachment.url} (${response.status})`,
-        );
-      }
-      if (!response.body) {
-        throw new Error(`Attachment response has no body: ${attachment.url}`);
-      }
-
-      const temporaryPath = await Deno.makeTempFile({
-        dir,
-        prefix: ".attachment-",
-        suffix: ".tmp",
-      });
       try {
-        await Deno.writeFile(temporaryPath, response.body);
-        await Deno.rename(temporaryPath, path);
-      } catch (error) {
-        await response.body.cancel().catch(() => {});
-        try {
-          await Deno.remove(temporaryPath);
-        } catch (cleanupError) {
-          if (!(cleanupError instanceof Deno.errors.NotFound)) {
-            throw new AggregateError(
-              [error, cleanupError],
-              "Attachment download and temporary file cleanup failed",
-            );
-          }
+        if (!response.ok) {
+          throw new Error(
+            `Attachment download failed: ${attachment.url} (${response.status})`,
+          );
         }
+        if (!response.body) {
+          throw new Error(`Attachment response has no body: ${attachment.url}`);
+        }
+
+        const temporaryPath = await Deno.makeTempFile({
+          dir,
+          prefix: ".attachment-",
+          suffix: ".tmp",
+        });
+        try {
+          await Deno.writeFile(temporaryPath, response.body);
+          await Deno.rename(temporaryPath, path);
+        } catch (error) {
+          try {
+            await Deno.remove(temporaryPath);
+          } catch (cleanupError) {
+            if (!(cleanupError instanceof Deno.errors.NotFound)) {
+              throw new AggregateError(
+                [error, cleanupError],
+                "Attachment download and temporary file cleanup failed",
+              );
+            }
+          }
+          throw error;
+        }
+      } catch (error) {
+        // HTTP and early filesystem failures can leave the fetch body unread.
+        // Cancellation must not replace the original download or cleanup error.
+        await response.body?.cancel().catch(() => undefined);
         throw error;
       }
 
