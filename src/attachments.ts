@@ -79,7 +79,7 @@ export function formatPromptWithAttachments(
     const contentType = attachment.contentType ?? "unknown";
     const size = attachment.size === null ? "unknown" : `${attachment.size}`;
     const codexImage = attachment.isImage
-      ? "yes; also attached to Codex with --image"
+      ? "yes; also attached to Codex as an image input"
       : "no; read from the saved path if needed";
     return [
       `${index + 1}. ${attachment.originalName}`,

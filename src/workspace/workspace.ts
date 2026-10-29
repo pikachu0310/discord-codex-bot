@@ -158,6 +158,7 @@ export class WorkspaceManager {
 
       const response = await fetch(attachment.url);
       if (!response.ok) {
+        await response.body?.cancel().catch(() => {});
         throw new Error(
           `Attachment download failed: ${attachment.url} (${response.status})`,
         );
@@ -175,6 +176,7 @@ export class WorkspaceManager {
         await Deno.writeFile(temporaryPath, response.body);
         await Deno.rename(temporaryPath, path);
       } catch (error) {
+        await response.body.cancel().catch(() => {});
         try {
           await Deno.remove(temporaryPath);
         } catch (cleanupError) {

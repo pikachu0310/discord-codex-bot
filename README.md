@@ -148,17 +148,22 @@ Bot は対象リポジトリを `WORK_BASE_DIR/repositories/` に clone
 ### 2. スレッドへ依頼を書く
 
 作成されたスレッドに通常の Discord メッセージを投稿します。Bot はその内容を
-Codex CLI に渡し、進捗と応答を同じスレッドへ返します。
+Codex App Server に渡し、進捗と応答を同じスレッドへ返します。
 初回応答の送信後、会話内容を要約して Discord スレッド名と作業ブランチ名を
 自動更新します。
 
 画像添付がある場合、Bot は添付ファイルを `WORK_BASE_DIR/attachments/`
-に保存し、対応する画像パスを Codex CLI の `--image` として渡します。
+に保存し、対応する画像パスを Codex の画像入力として渡します。
 
 ### 3. 継続して会話する
 
-同じスレッドへの次の投稿は、前回の Codex セッションを `resume`
-して実行されます。スレッドごとにセッションと作業コピーが分かれるため、別スレッドの作業と混ざりません。
+作業中の追加投稿は、実行中の Codex にそのまま渡されます。同じセッションの Codex
+プロセスを重複起動しません。完了後の投稿は、前回のセッションを再開して実行します。
+スレッドごとにセッションと作業コピーが分かれるため、別スレッドの作業と混ざりません。
+
+Codex が質問した場合は、同じスレッドに通常のメッセージで回答してください。
+選択肢付きの質問には番号（例: `2`）、または自由文で回答できます。
+複数の質問がある場合は1問ずつ表示されます。質問待ち中も `/stop` で中断できます。
 
 `!` から始まるメッセージは Bot
 が無視するため、同じスレッド内でユーザー同士の会話に使えます。
@@ -197,29 +202,19 @@ WORK_BASE_DIR/
 このディレクトリは Bot が直接読み書きします。複数環境で同じ `WORK_BASE_DIR`
 を共有しないでください。
 
-## Codex CLI の実行形式
+## Codex との通信
 
-Bot は概ね次の形式で Codex CLI を実行します。
+作業実行には `codex app-server` の標準入出力を使います。 初期化後、新規会話は
+`thread/start`、継続会話は `thread/resume`、 作業開始は `turn/start`
+で処理します。作業中の追加入力は `turn/steer` で渡します。 質問
+(`item/tool/requestUserInput`) への回答は、対応するリクエストへ返します。
+作業終了と追加投稿が重なった場合は、終了を待って次の作業として受け付けます。
 
-新規セッション:
-
-```text
-codex --search exec --json --color never --dangerously-bypass-approvals-and-sandbox --output-last-message <path> -- "<prompt>"
-```
-
-継続セッション:
-
-```text
-codex --search exec --json --color never --dangerously-bypass-approvals-and-sandbox resume --output-last-message <path> -- <session_id> "<prompt>"
-```
-
-画像添付がある場合は `--image <path>`
-が追加されます。`CODEX_APPEND_SYSTEM_PROMPT` を設定している場合は
-`--append-system-prompt` も追加されます。
-
-画像の有無にかかわらず、すべてのオプションの後、本文（継続時は session
-ID）の直前に `--` を置きます。`--help` や `-x`
-などで始まる本文も位置引数として渡します。
+画像添付は `localImage` 入力、`CODEX_APPEND_SYSTEM_PROMPT` は
+`developerInstructions` として渡します。本文は構造化データで送るため、 `--help`
+や `-x` などで始まる本文もそのまま渡せます。 従来どおり、承認ポリシーは
+`never`、サンドボックスは `danger-full-access` です。 App Server
+の上記メソッドに対応した Codex CLI が必要です。
 
 Bot は `--model` や `model_reasoning_effort` を指定しません。モデル、reasoning
 effort、profile などの Codex CLI 設定は、Bot を起動するユーザーの Codex CLI

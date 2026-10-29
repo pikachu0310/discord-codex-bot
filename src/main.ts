@@ -677,10 +677,12 @@ client.on(Events.MessageCreate, (message) => {
       await message.react(emoji).catch(() => {});
     };
 
-    const startStatusResult = await getAndApplyCodexStatus(Deno.cwd());
-    const startStatus = startStatusResult.isOk()
-      ? startStatusResult.value
-      : null;
+    const isRunning = workerResult.value.isRunning?.() ?? false;
+    // Status capture uses a separate TUI; do not delay replies to questions or
+    // allow its startup delay to reorder messages sent to the worker.
+    const startStatusPromise = isRunning
+      ? Promise.resolve(null)
+      : getAndApplyCodexStatus(Deno.cwd());
 
     const attachmentInputs = getAttachmentDownloadInputs(message);
     let savedAttachments: SavedAttachment[] = [];
@@ -740,18 +742,24 @@ client.on(Events.MessageCreate, (message) => {
       return;
     }
 
+    const startStatusResult = await startStatusPromise;
+    const startStatus = startStatusResult?.isOk()
+      ? startStatusResult.value
+      : null;
     const reply = result.value;
     const replyContent = typeof reply === "string" ? reply : reply.content;
-    const endStatusResult = await getAndApplyCodexStatus(Deno.cwd());
-    const endStatus = endStatusResult.isOk() ? endStatusResult.value : null;
+    const endStatusResult = isRunning
+      ? null
+      : await getAndApplyCodexStatus(Deno.cwd());
+    const endStatus = endStatusResult?.isOk() ? endStatusResult.value : null;
     const finalReply = replyContent.trim() === MESSAGES.NO_FINAL_RESPONSE &&
         lastProgressMessageUrl
       ? `Codexの最終テキストを取得できなかったため、直近の出力を参照してください。\n> ${lastProgressMessageUrl}`
       : replyContent;
     const statusUnavailableNote = formatCodexStatusUnavailableNote(
-      endStatusResult.isErr()
+      endStatusResult?.isErr()
         ? endStatusResult.error
-        : startStatusResult.isErr()
+        : startStatusResult?.isErr()
         ? startStatusResult.error
         : undefined,
     );
