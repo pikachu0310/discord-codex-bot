@@ -4,7 +4,7 @@ Discord のスレッドから Codex CLI を動かすための Bot です。
 
 `/start owner/repo` で GitHub
 リポジトリごとの作業スレッドを作成し、そのスレッドに投稿されたメッセージを Codex
-CLI へ渡します。Codex の途中出力と最終応答は Discord
+CLI へ渡します。Codex の進捗メッセージと最終応答は Discord
 に返され、同じスレッド内では Codex セッションを継続できます。
 
 ## できること
@@ -90,7 +90,7 @@ gh auth login
    - Create Public Threads
    - Read Message History
    - Add Reactions
-   - Manage Threads（`/close` を使う場合）
+   - Manage Threads（Botが `/close` でスレッドを閉じるために必要）
 
 ## セットアップ
 
@@ -170,14 +170,14 @@ Codex が質問した場合は、同じスレッドに通常のメッセージ�
 
 ## スラッシュコマンド
 
-| コマンド                       | 実行場所       | 説明                                                                               |
-| ------------------------------ | -------------- | ---------------------------------------------------------------------------------- |
-| `/start repository:owner/repo` | 通常チャンネル | リポジトリを準備し、新しい作業スレッドを作ります。                                 |
-| `/stop`                        | 作業スレッド   | 実行中の Codex プロセスを中断します。                                              |
-| `/plan`                        | 作業スレッド   | 次回以降の依頼で、実装前に計画を返すよう Codex へ指示します。                      |
-| `/status`                      | どこでも       | Codex の 5h / Weekly limit を確認します。                                          |
-| `/active-threads`              | どこでも       | 現在アクティブな作業スレッドから、実行者宛てに silent mention を送ります。         |
-| `/close`                       | 作業スレッド   | Worker を終了し、Discord スレッドをクローズします。Manage Threads 権限が必要です。 |
+| コマンド                       | 実行場所       | 説明                                                                          |
+| ------------------------------ | -------------- | ----------------------------------------------------------------------------- |
+| `/start repository:owner/repo` | 通常チャンネル | リポジトリを準備し、新しい作業スレッドを作ります。                            |
+| `/stop`                        | 作業スレッド   | 実行中の Codex プロセスを中断します。                                         |
+| `/plan`                        | 作業スレッド   | 次回以降の依頼で、実装前に計画を返すよう Codex へ指示します。                 |
+| `/status`                      | どこでも       | Codex の 5h / Weekly limit を確認します。                                     |
+| `/active-threads`              | どこでも       | 現在アクティブな作業スレッドから、実行者宛てに silent mention を送ります。    |
+| `/close`                       | 作業スレッド   | Worker を終了し、Discord スレッドをクローズします。@everyone で実行できます。 |
 
 `/start` の repository 入力は、すでに Bot
 が取得済みのローカルリポジトリを候補としてオートコンプリートします。
@@ -209,6 +209,12 @@ WORK_BASE_DIR/
 で処理します。作業中の追加入力は `turn/steer` で渡します。 質問
 (`item/tool/requestUserInput`) への回答は、対応するリクエストへ返します。
 作業終了と追加投稿が重なった場合は、終了を待って次の作業として受け付けます。
+
+Discordへ送るのは、Codexの進捗メッセージ・質問・最終回答です。
+コマンドの標準出力・標準エラー、ツールの結果、推論や未知のイベントは返信しません。
+最終回答は途中経過と重複させずに送信し、生の通信ログは従来どおり
+`WORK_BASE_DIR/sessions/` に保存します。 利用枠は `account/rateLimits/read`
+から取得します。
 
 画像添付は `localImage` 入力、`CODEX_APPEND_SYSTEM_PROMPT` は
 `developerInstructions` として渡します。本文は構造化データで送るため、 `--help`

@@ -50,7 +50,7 @@ function failure(error: unknown): ExecutionResult {
 }
 
 /** JSONL RPC over one app-server process for the lifetime of a turn. */
-class AppServerConnection {
+export class AppServerConnection {
   private nextId = 0;
   private readonly pending = new Map<number, {
     resolve: (value: Packet) => void;
@@ -62,14 +62,19 @@ class AppServerConnection {
   private readonly stderrTask: Promise<string>;
   private readonly encoder = new TextEncoder();
   private closed = false;
+  private readonly streamsAbort = new AbortController();
 
   constructor(
     readonly process: Deno.ChildProcess,
     private readonly onPacket: (packet: Packet) => void,
     private readonly onClose: (error: Error) => void,
+    private readonly requestTimeoutMs = 30_000,
   ) {
     this.writer = process.stdin.getWriter();
-    this.stderrTask = new Response(process.stderr).text();
+    this.stderrTask = new Response(process.stderr.pipeThrough(
+      new TransformStream(),
+      { signal: this.streamsAbort.signal },
+    )).text().catch(() => "");
     this.readerTask = this.read();
   }
 
@@ -84,7 +89,7 @@ class AppServerConnection {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`Codex RPC timed out: ${method}`));
-      }, 30_000);
+      }, this.requestTimeoutMs);
       this.pending.set(id, { resolve, reject, timer });
     });
     void this.write({ id, method, params }).catch((error) => {
@@ -101,7 +106,10 @@ class AppServerConnection {
   private async read(): Promise<void> {
     let closeError = new Error("Codex App Serverとの接続が終了しました。");
     try {
-      const lines = this.process.stdout.pipeThrough(new TextDecoderStream())
+      const lines = this.process.stdout.pipeThrough(
+        new TextDecoderStream(),
+        { signal: this.streamsAbort.signal },
+      )
         .pipeThrough(new TextLineStream());
       for await (const line of lines) {
         if (!line.trim()) continue;
@@ -135,16 +143,26 @@ class AppServerConnection {
   }
 
   async dispose(): Promise<string> {
+    // npm's codex launcher forwards SIGTERM to the native child. SIGKILL
+    // kills only the launcher, leaving the child holding stdout/stderr open.
+    const timeout = setTimeout(() => {
+      try {
+        this.process.kill("SIGKILL");
+      } catch { /* Already exited. */ }
+      this.streamsAbort.abort();
+    }, PROCESS.TERMINATION_TIMEOUT_MS);
     try {
-      this.process.kill("SIGKILL");
-    } catch {
-      // Already exited.
+      try {
+        this.process.kill("SIGTERM");
+      } catch { /* Already exited. */ }
+      await this.process.status.catch(() => {});
+      await this.readerTask;
+      await this.writer.close().catch(() => {});
+      return await this.stderrTask;
+    } finally {
+      clearTimeout(timeout);
+      this.writer.releaseLock();
     }
-    await this.process.status.catch(() => {});
-    await this.readerTask;
-    await this.writer.close().catch(() => {});
-    this.writer.releaseLock();
-    return await this.stderrTask;
   }
 }
 
@@ -388,6 +406,7 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
           type: "item.completed",
           item: {
             type: "agent_message",
+            phase: item.phase,
             text: [
               item.text,
               ...((item.questions ?? []) as {
@@ -402,14 +421,6 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
                 ].join("\n")
               ),
             ].filter(Boolean).join("\n"),
-          },
-        });
-      } else if (item.type === "commandExecution") {
-        active.emit({
-          type: "item.completed",
-          item: {
-            type: "command_execution",
-            stdout: item.aggregatedOutput,
           },
         });
       } else if (item.type === "plan" || item.type === "contextCompaction") {

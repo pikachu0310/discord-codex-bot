@@ -158,6 +158,7 @@ export class Worker implements IWorker {
     let allOutput = "";
     let finalResult = "";
     let pendingBuffer = "";
+    let progressTail = Promise.resolve();
     let rateLimitTimestamp: number | undefined;
     let sessionSave: Promise<Result<void, WorkerError>> = Promise.resolve(
       ok(undefined),
@@ -192,7 +193,9 @@ export class Worker implements IWorker {
           const formatted = this.formatter.formatResponse(parsed.text);
           for (const chunkText of splitIntoDiscordChunks(formatted)) {
             if (!chunkText.trim()) continue;
-            void this.reportProgress(onProgress, chunkText);
+            progressTail = progressTail.then(() =>
+              this.reportProgress(onProgress, chunkText)
+            );
           }
         }
       }
@@ -321,6 +324,7 @@ export class Worker implements IWorker {
       this.codexProcess = null;
       ready();
       await sessionSave;
+      await progressTail;
     }
   }
 

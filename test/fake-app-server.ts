@@ -2,6 +2,25 @@
 import { TextLineStream } from "std/streams/text_line_stream.ts";
 
 const scenario = Deno.args[0];
+// Reproduce the npm launcher: its child inherits the RPC pipes and survives
+// SIGKILL of the launcher. SIGTERM must be forwarded to release both pipes.
+if (scenario === "wrapper") {
+  const child = new Deno.Command(Deno.execPath(), {
+    args: ["run", "--quiet", new URL(import.meta.url).pathname, "complete"],
+    stdin: "inherit",
+    stdout: "inherit",
+    stderr: "inherit",
+  }).spawn();
+  const forward = () => {
+    try {
+      child.kill("SIGTERM");
+    } catch { /* exited */ }
+  };
+  Deno.addSignalListener("SIGTERM", forward);
+  const status = await child.status;
+  Deno.removeSignalListener("SIGTERM", forward);
+  Deno.exit(status.code);
+}
 const encoder = new TextEncoder();
 const send = (packet: unknown) =>
   Deno.stdout.write(encoder.encode(JSON.stringify(packet) + "\n"));
@@ -9,7 +28,11 @@ const notify = (method: string, params: unknown) => send({ method, params });
 const complete = async (status = "completed") => {
   await notify("item/completed", {
     threadId: "thread-1",
-    item: { type: "agentMessage", text: "最終返信です。" },
+    item: {
+      type: "agentMessage",
+      phase: "final_answer",
+      text: "最終返信です。",
+    },
   });
   await notify("turn/completed", {
     threadId: "thread-1",
@@ -25,6 +48,26 @@ for await (
   if (packet.method === "initialize") {
     if (scenario === "exit") Deno.exit(1);
     await send({ id: packet.id, result: {} });
+  } else if (packet.method === "account/rateLimits/read") {
+    await send({
+      id: packet.id,
+      result: {
+        rateLimitsByLimitId: {
+          codex: {
+            primary: {
+              usedPercent: 20,
+              windowDurationMins: 300,
+              resetsAt: 1793318400,
+            },
+            secondary: {
+              usedPercent: 35,
+              windowDurationMins: 10080,
+              resetsAt: 1793404800,
+            },
+          },
+        },
+      },
+    });
   } else if (packet.method === "initialized") {
     initialized = true;
   } else if (["thread/start", "thread/resume"].includes(packet.method)) {

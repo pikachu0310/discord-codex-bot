@@ -15,6 +15,8 @@ function setup(scenario: string) {
       args: [
         "run",
         "--quiet",
+        "--allow-run",
+        "--allow-read",
         new URL("./fake-app-server.ts", import.meta.url).pathname,
         scenario,
       ],
@@ -149,11 +151,17 @@ Deno.test("App Server: 入力拒否を報告し、実行中のturnを維持す�
   await run;
 });
 
-for (const scenario of ["complete", "failed", "exit", "disconnect"]) {
+for (
+  const scenario of ["complete", "wrapper", "failed", "exit", "disconnect"]
+) {
   Deno.test(`App Server: ${scenario}でも接続とプロセスを解放する`, async () => {
     const test = setup(scenario);
     const result = await test.run();
-    assertEquals(result.isOk(), scenario === "complete");
+    assertEquals(
+      result.isOk(),
+      ["complete", "wrapper"].includes(scenario),
+      JSON.stringify(test.packets.slice(-3)),
+    );
   });
 }
 

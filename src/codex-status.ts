@@ -1,4 +1,5 @@
 import { err, ok, Result } from "neverthrow";
+import { AppServerConnection } from "./worker/codex-executor.ts";
 
 export interface CodexUsageLimit {
   percentLeft: number;
@@ -20,15 +21,9 @@ export type CodexStatusError =
 
 interface CodexStatusProviderOptions {
   command?: string;
-  startupDelayMs?: number;
-  statusRenderDelayMs?: number;
   timeoutMs?: number;
   timeZone?: string;
 }
-
-const DEFAULT_STARTUP_DELAY_MS = 2000;
-const DEFAULT_STATUS_RENDER_DELAY_MS = 3000;
-const DEFAULT_TIMEOUT_MS = 9000;
 const ESCAPE = String.fromCharCode(27);
 const BELL = String.fromCharCode(7);
 const OSC_SEQUENCE_PATTERN = new RegExp(
@@ -56,134 +51,83 @@ const MONTHS = new Map([
 ]);
 
 export class CodexStatusProvider {
-  private readonly command: string;
-  private readonly startupDelayMs: number;
-  private readonly statusRenderDelayMs: number;
-  private readonly timeoutMs: number;
-  private readonly timeZone?: string;
-
-  constructor(options: CodexStatusProviderOptions = {}) {
-    this.command = options.command ??
-      "stty rows 30 cols 100; codex --no-alt-screen";
-    this.startupDelayMs = options.startupDelayMs ??
-      DEFAULT_STARTUP_DELAY_MS;
-    this.statusRenderDelayMs = options.statusRenderDelayMs ??
-      DEFAULT_STATUS_RENDER_DELAY_MS;
-    this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    this.timeZone = normalizeTimeZone(options.timeZone);
-  }
+  constructor(private readonly options: CodexStatusProviderOptions = {}) {}
 
   async getStatus(
     cwd: string,
   ): Promise<Result<CodexUsageStatus, CodexStatusError>> {
+    let connection: AppServerConnection | undefined;
     try {
-      const outputResult = await this.captureStatusOutput(cwd);
-      if (outputResult.isErr()) {
-        if ("output" in outputResult.error) {
-          const parsed = this.parseStatusOutput(outputResult.error.output);
-          if (parsed.isOk()) {
-            return parsed;
-          }
-        }
-        return err(outputResult.error);
-      }
-      return this.parseStatusOutput(outputResult.value);
+      const process = new Deno.Command(this.options.command ?? "codex", {
+        args: ["app-server"],
+        cwd,
+        stdin: "piped",
+        stdout: "piped",
+        stderr: "piped",
+      }).spawn();
+      connection = new AppServerConnection(
+        process,
+        () => {},
+        () => {},
+        this.options.timeoutMs ?? 9000,
+      );
+      await connection.request("initialize", {
+        clientInfo: { name: "discord_codex_status", version: "1.0.0" },
+      });
+      await connection.write({ method: "initialized", params: {} });
+      return parseCodexRateLimits(
+        await connection.request("account/rateLimits/read", {}),
+        normalizeTimeZone(this.options.timeZone) ?? "UTC",
+      );
     } catch (error) {
       return err({
         type: "STATUS_UNAVAILABLE",
         error: error instanceof Error ? error.message : String(error),
       });
-    }
-  }
-
-  private parseStatusOutput(
-    output: string,
-  ): Result<CodexUsageStatus, CodexStatusError> {
-    const parsed = parseCodexStatus(output);
-    if (parsed.isErr() && isCodexUpdatePrompt(output)) {
-      return err({ type: "UPDATE_REQUIRED", output });
-    }
-    if (parsed.isErr() || !this.timeZone) {
-      return parsed;
-    }
-    return ok(convertCodexStatusTimeZone(parsed.value, this.timeZone));
-  }
-
-  private async captureStatusOutput(
-    cwd: string,
-  ): Promise<Result<string, CodexStatusError>> {
-    const command = new Deno.Command("script", {
-      args: ["-qfec", this.command, "/dev/null"],
-      cwd,
-      stdin: "piped",
-      stdout: "piped",
-      stderr: "piped",
-      env: {
-        TERM: "xterm-256color",
-        COLUMNS: "100",
-        LINES: "30",
-      },
-    });
-    const process = command.spawn();
-
-    const stdoutPromise = new Response(process.stdout).arrayBuffer();
-    const stderrPromise = new Response(process.stderr).arrayBuffer();
-    const stdinPromise = this.driveStatusTui(process.stdin);
-
-    let timedOut = false;
-    const timeout = delay(this.timeoutMs).then(() => {
-      timedOut = true;
-      try {
-        process.kill("SIGKILL");
-      } catch {
-        // The process may have already exited.
-      }
-    });
-
-    const status = await Promise.race([
-      process.status,
-      timeout.then(() => process.status.catch(() => ({ code: 124 }))),
-    ]);
-
-    await stdinPromise.catch(() => {});
-    const [stdout, stderr] = await Promise.all([
-      stdoutPromise,
-      stderrPromise,
-    ]);
-    const output = decodeOutput(stdout) + decodeOutput(stderr);
-
-    if (timedOut) {
-      return err({ type: "COMMAND_TIMEOUT", output });
-    }
-    if (status.code !== 0) {
-      return err({ type: "COMMAND_FAILED", code: status.code, output });
-    }
-    return ok(output);
-  }
-
-  private async driveStatusTui(
-    stdin: WritableStream<Uint8Array>,
-  ): Promise<void> {
-    const writer = stdin.getWriter();
-    const encoder = new TextEncoder();
-    try {
-      await delay(this.startupDelayMs);
-      await writer.write(encoder.encode("/status\n\r"));
-      await delay(this.statusRenderDelayMs);
-      await writer.write(encoder.encode("\x03"));
     } finally {
-      await writer.close().catch(() => {});
-      writer.releaseLock();
+      await connection?.dispose();
     }
   }
 }
 
-function decodeOutput(output: ArrayBuffer): string {
-  return new TextDecoder().decode(output);
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+export function parseCodexRateLimits(
+  response: Record<string, unknown>,
+  timeZone = "UTC",
+): Result<CodexUsageStatus, CodexStatusError> {
+  type Window = {
+    usedPercent: number;
+    windowDurationMins: number;
+    resetsAt: number;
+  };
+  type Bucket = { primary?: Window | null; secondary?: Window | null };
+  const buckets = response.rateLimitsByLimitId as
+    | Record<string, Bucket>
+    | undefined;
+  const bucket = buckets?.codex ?? response.rateLimits as Bucket | undefined;
+  const windows = [bucket?.primary, bucket?.secondary];
+  const limit = (minutes: number): CodexUsageLimit | undefined => {
+    const window = windows.find((w) => w?.windowDurationMins === minutes);
+    if (
+      !window || !Number.isFinite(window.usedPercent) ||
+      !Number.isFinite(window.resetsAt)
+    ) return;
+    return {
+      percentLeft: Math.max(0, Math.min(100, 100 - window.usedPercent)),
+      resets: formatDateTimeInZone(new Date(window.resetsAt * 1000), timeZone),
+    };
+  };
+  const weekly = limit(10080);
+  if (!weekly) {
+    return err({
+      type: "STATUS_UNAVAILABLE",
+      error: "週の利用枠を取得できませんでした。",
+    });
+  }
+  return ok({
+    fiveHour: limit(300),
+    weekly,
+    capturedAt: new Date().toISOString(),
+  });
 }
 
 export function parseCodexStatus(

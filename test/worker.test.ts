@@ -55,7 +55,7 @@ class FakeCodexExecutor implements CodexCommandExecutor {
   }
 }
 
-Deno.test("Worker: 最終応答候補のagent_messageも進捗として送信する", async () => {
+Deno.test("Worker: 途中経過と最終回答を分け、最終回答を重複送信しない", async () => {
   const baseDir = await createTestDir("worker_test_");
   const worktreePath = await createTestDir("worker_worktree_");
   try {
@@ -85,6 +85,7 @@ Deno.test("Worker: 最終応答候補のagent_messageも進捗として送信す
         item: {
           id: "item_0",
           type: "agent_message",
+          phase: "commentary",
           text: "途中ログです。",
         },
       }),
@@ -116,7 +117,7 @@ Deno.test("Worker: 最終応答候補のagent_messageも進捗として送信す
     assertEquals(result.isOk(), true);
     assertEquals(result._unsafeUnwrap(), "最終返信です。");
     assertEquals(progress.includes("途中ログです。"), true);
-    assertEquals(progress.includes("最終返信です。"), true);
+    assertEquals(progress.includes("最終返信です。"), false);
   } finally {
     await Deno.remove(baseDir, { recursive: true });
     await Deno.remove(worktreePath, { recursive: true });

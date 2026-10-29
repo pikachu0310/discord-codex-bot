@@ -7,7 +7,6 @@ import {
   GatewayIntentBits,
   MessageFlags,
   Partials,
-  PermissionFlagsBits,
   REST,
   Routes,
   SlashCommandBuilder,
@@ -263,7 +262,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName("close")
     .setDescription("現在のスレッドをクローズします")
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageThreads)
+    .setDefaultMemberPermissions(null)
     .toJSON(),
 ];
 
