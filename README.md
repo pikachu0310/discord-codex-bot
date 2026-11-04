@@ -331,3 +331,6 @@ limitはSDK内で待たず、 `RATE_LIMITED` と `retry_after_ms`
 だけで、環境変数一覧は出力しません。 依存を更新せず使う場合は既存の
 `deno.json`・`deno.lock` とキャッシュを用い、 `--cached-only --frozen`
 を追加します。キャッシュ不足なら取得成功として進めず終了します。
+
+認証・ネットワーク権限なしの使い方確認は
+`deno run --cached-only src/read-history.ts --help` です。

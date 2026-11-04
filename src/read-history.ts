@@ -285,7 +285,21 @@ export function safeHistoryError(
   return { code, status };
 }
 
-if (import.meta.main) {
+if (import.meta.main && Deno.args.length === 1 && Deno.args[0] === "--help") {
+  console.log(
+    JSON.stringify({
+      ok: true,
+      read_only: true,
+      commands: ["messages", "threads-active", "threads-archived"],
+      required: ["--guild GUILD_ID", "--channel CHANNEL_ID"],
+      paging:
+        "messages: --limit 1..100 --before MESSAGE_ID; archives: --visibility public|private|joined-private --limit 1..100 --before CURSOR",
+      auth:
+        "Existing DISCORD_TOKEN via --env-file; never pass credentials as arguments.",
+      help_accesses_credentials_or_network: false,
+    }),
+  );
+} else if (import.meta.main) {
   let exitCode = 0;
   try {
     const options = parseHistoryOptions(Deno.args);
