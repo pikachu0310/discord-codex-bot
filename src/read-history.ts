@@ -130,12 +130,59 @@ function message(value: unknown, channel: string): ObjectValue {
   const author = object(row.author);
   const attachments = row.attachments === undefined ? [] : row.attachments;
   if (!Array.isArray(attachments)) throw new ReadError("INVALID_RESPONSE");
+  const embeds = row.embeds === undefined ? [] : row.embeds;
+  if (!Array.isArray(embeds)) throw new ReadError("INVALID_RESPONSE");
   return {
     id: row.id,
     channel_id: row.channel_id,
     timestamp: row.timestamp,
     edited_timestamp: row.edited_timestamp,
     content: row.content,
+    type: row.type,
+    message_reference: select(row.message_reference, [
+      "message_id",
+      "channel_id",
+      "guild_id",
+      "type",
+      "fail_if_not_exists",
+    ]),
+    // Preserve absent vs null vs supplied; never fetch or recurse into replies.
+    referenced_message: select(row.referenced_message, [
+      "id",
+      "channel_id",
+      "guild_id",
+      "type",
+      "timestamp",
+      "edited_timestamp",
+    ]),
+    thread: select(row.thread, [
+      "id",
+      "guild_id",
+      "parent_id",
+      "name",
+      "type",
+      "owner_id",
+      "message_count",
+      "member_count",
+      "thread_metadata",
+    ]),
+    embeds: embeds.map((value) =>
+      select(value, [
+        "type",
+        "title",
+        "description",
+        "url",
+        "timestamp",
+        "color",
+        "fields",
+        "image",
+        "thumbnail",
+        "video",
+        "provider",
+        "author",
+        "footer",
+      ])
+    ),
     author: {
       id: author.id,
       username: author.username,
@@ -152,6 +199,17 @@ function message(value: unknown, channel: string): ObjectValue {
       };
     }),
   };
+}
+
+function select(
+  value: unknown,
+  keys: string[],
+): ObjectValue | null | undefined {
+  if (value === undefined || value === null) return value;
+  const row = object(value);
+  return Object.fromEntries(
+    keys.filter((key) => key in row).map((key) => [key, row[key]]),
+  );
 }
 
 export async function readHistory(options: HistoryOptions, api: ReadTransport) {

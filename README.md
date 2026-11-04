@@ -303,6 +303,11 @@ deno run --env-file=.env --allow-env --allow-net=discord.com \
 へ渡します。 メッセージAPIに終端情報はないため `has_more` は `null`、`complete`
 は常に `false` です。 空配列も、履歴がないことや全件取得の証明にはしません。
 
+messagesは既存の本文・添付に加え、`type`・`message_reference`・参照先のID/日時、
+付属する`thread`のmetadata、`embeds`の本文・リンク・画像等を返します。
+`referenced_message`はAPIで欠落していれば省略、明示的なnullならnull、
+取得済みなら最小限のmetadataを保持します。参照先本文の再帰展開や追加GETはしません。
+
 archiveの `has_more` はAPIの値を保持します。public/privateの `--before` は
 `archive_timestamp` のISO日時、joined-privateはthread IDです。
 `--visibility private` は権限で見える非公開アーカイブ、`joined-private`

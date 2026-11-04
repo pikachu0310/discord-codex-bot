@@ -88,6 +88,63 @@ Deno.test("active threads filter the requested parent", async () => {
   assertEquals(result.count, 1);
   assertEquals(calls[1].path, `/guilds/${guild}/threads/active`);
 });
+Deno.test("messages retain reply states, attached thread and embed links without extra GETs", async () => {
+  const base = {
+    id: last,
+    channel_id: channel,
+    content: "synthetic",
+    author: { id: older, username: "sample" },
+    attachments: [{
+      id: older,
+      filename: "sample.png",
+      url: "https://example.test/file.png",
+    }],
+  };
+  const reference = {
+    message_id: older,
+    channel_id: channel,
+    guild_id: guild,
+    type: 0,
+  };
+  const referenced = {
+    id: older,
+    channel_id: channel,
+    type: 0,
+    timestamp: "2026-01-01T00:00:00Z",
+  };
+  const attachedThread = { ...thread(), message_count: 3, member_count: 2 };
+  const embed = {
+    type: "rich",
+    title: "sample",
+    description: "synthetic description",
+    url: "https://example.test/page",
+    image: { url: "https://example.test/image.png", width: 640 },
+    thumbnail: { url: "https://example.test/thumb.png" },
+    fields: [{ name: "sample", value: "value" }],
+  };
+  const { api, calls } = transport([{ id: channel, guild_id: guild }, [
+    base,
+    { ...base, message_reference: reference, referenced_message: null },
+    {
+      ...base,
+      message_reference: reference,
+      referenced_message: { ...referenced, referenced_message: base },
+      thread: attachedThread,
+      embeds: [embed],
+    },
+  ]]);
+  const result = JSON.parse(JSON.stringify(await readHistory(options(), api)));
+  assertEquals("referenced_message" in result.messages[0], false);
+  assertEquals(result.messages[0].embeds, []);
+  assertEquals(result.messages[1].referenced_message, null);
+  assertEquals(result.messages[2].message_reference, reference);
+  assertEquals(result.messages[2].referenced_message, referenced);
+  assertEquals(result.messages[2].thread, attachedThread);
+  assertEquals(result.messages[2].embeds, [embed]);
+  assertEquals(result.messages[2].content, base.content);
+  assertEquals(result.messages[2].attachments, base.attachments);
+  assertEquals(calls.length, 2);
+});
 Deno.test("archive preserves API has_more and timestamp cursor", async () => {
   const { api, calls } = transport([{ id: channel, guild_id: guild, type: 0 }, {
     threads: [thread()],
