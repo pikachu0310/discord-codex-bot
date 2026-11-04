@@ -276,3 +276,58 @@ repository を扱う場合は、Bot 実行ユーザーの Git
 - `docs/autocomplete.md`: `/start` オートコンプリート調査メモ
 - `docs/CODEX.md`: 過去のアーキテクチャメモ
 - `docs/rearchitecture-spec-v2.md`: 再設計仕様メモ
+
+## 履歴の読取CLI（運用者向け）
+
+`src/read-history.ts` はBot本体を起動しない独立したGET専用入口です。
+`Client`・Worker復旧・コマンド登録を呼ばず、投稿・既読更新・参加・権限変更もしません。
+同じ運用環境の既存 `.env`
+を使い、tokenを引数・ログ・別ファイルへコピーしないでください。
+対象サーバーとチャンネルの両IDが必須で、所属を確認してから取得します。
+
+既存checkoutのrootで、対象の実IDへ置き換えて実行します。
+
+```bash
+deno run --env-file=.env --allow-env --allow-net=discord.com \
+  src/read-history.ts messages --guild 'GUILD_ID' --channel 'CHANNEL_ID' --limit 100
+
+deno run --env-file=.env --allow-env --allow-net=discord.com \
+  src/read-history.ts threads-active --guild 'GUILD_ID' --channel 'PARENT_CHANNEL_ID'
+
+deno run --env-file=.env --allow-env --allow-net=discord.com \
+  src/read-history.ts threads-archived --guild 'GUILD_ID' --channel 'PARENT_CHANNEL_ID' \
+  --visibility public --limit 100
+```
+
+各呼出しは1ページだけです。messagesの続きには返った `next_cursor` を `--before`
+へ渡します。 メッセージAPIに終端情報はないため `has_more` は `null`、`complete`
+は常に `false` です。 空配列も、履歴がないことや全件取得の証明にはしません。
+
+archiveの `has_more` はAPIの値を保持します。public/privateの `--before` は
+`archive_timestamp` のISO日時、joined-privateはthread IDです。
+`--visibility private` は権限で見える非公開アーカイブ、`joined-private`
+はBotが参加済みの範囲です。
+activeは指定した親チャンネルの可視threadだけを返し、archiveを含みません。
+フォーラムでは親チャンネルからthreadを列挙し、そのthread
+IDでmessagesを読みます。
+
+Botが参加・閲覧できる範囲だけが対象で、本人アカウントの全DMや全サーバーを代替しません。
+`VIEW_CHANNEL`・`READ_MESSAGE_HISTORY`、非公開threadのアクセス条件、Message
+Content Intentによって
+取得範囲と本文が制限されます。HTTP/認証エラーは固定コードで返し、例外全文や認証値は出力しません。
+[公式メッセージ仕様](https://docs.discord.com/developers/resources/message#get-channel-messages)・
+[thread仕様](https://docs.discord.com/developers/topics/threads)を参照してください。
+
+導入時はDiscord
+APIへのネットワーク権限を与えず、実tokenの読取を明示拒否した合成transportの9ケースと型検査で確認しました。
+実際のサーバーでの取得・OCI配置・Bot再起動は未実施です。
+
+SDKの自動再試行は0回、1要求15秒・全体30秒で中断します。rate
+limitはSDK内で待たず、 `RATE_LIMITED` と `retry_after_ms`
+を返します。次の呼出しはその待機時間以降に行います。
+
+`discord.js` のNode互換依存も環境変数を参照するため、既存Botと同じ `--allow-env`
+を使います。 CLI自身が読む認証変数は `DISCORD_TOKEN`
+だけで、環境変数一覧は出力しません。 依存を更新せず使う場合は既存の
+`deno.json`・`deno.lock` とキャッシュを用い、 `--cached-only --frozen`
+を追加します。キャッシュ不足なら取得成功として進めず終了します。
