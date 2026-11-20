@@ -1,3 +1,8 @@
+import {
+  formatPromptWithAttachments,
+  getCodexImagePaths,
+  PendingAttachmentDownloads,
+} from "../src/attachments.ts";
 import { assertEquals, assertExists, assertRejects } from "std/assert/mod.ts";
 import { dirname, fromFileUrl } from "std/path/mod.ts";
 import { stub } from "std/testing/mock.ts";
@@ -216,64 +221,148 @@ Deno.test("WorkspaceManager: 添付stream失敗時は既存ファイルとmanife
   }
 });
 
-Deno.test("WorkspaceManager: 添付のwrite/rename失敗時は今回の一時ファイルだけ削除する", async (t) => {
-  for (const operation of ["writeFile", "rename"] as const) {
-    await t.step(operation, async () => {
-      const baseDir = await createTestDir("workspace_test_");
-      try {
-        const manager = new WorkspaceManager(baseDir);
-        const attachments = [{
+Deno.test({
+  name:
+    "WorkspaceManager: 添付の一時ファイル作成/write/rename失敗時も資源と既存ファイルを保全する",
+  sanitizeResources: true,
+  sanitizeOps: true,
+  async fn(t) {
+    for (const operation of ["makeTempFile", "writeFile", "rename"] as const) {
+      await t.step(operation, async () => {
+        const baseDir = await createTestDir("workspace_test_");
+        try {
+          const manager = new WorkspaceManager(baseDir);
+          const attachments = [{
+            id: "att-1",
+            name: "file.txt",
+            url: "data:,complete",
+            contentType: "text/plain",
+            size: 8,
+          }];
+          const original = await manager.saveMessageAttachments(
+            "thread-1",
+            "message-1",
+            attachments,
+          );
+          const dir = manager.getMessageAttachmentsDir("thread-1", "message-1");
+          const manifest = await Deno.readTextFile(`${dir}/attachments.json`);
+          await Deno.writeTextFile(
+            `${dir}/.attachment-other-job.tmp`,
+            "in progress",
+          );
+          const names = await listFileNames(dir);
+          const failureStub = stub(
+            Deno,
+            operation,
+            () => Promise.reject<never>(new Error(`${operation} failed`)),
+          );
+          try {
+            await assertRejects(
+              () =>
+                manager.saveMessageAttachments(
+                  "thread-1",
+                  "message-1",
+                  attachments,
+                ),
+              Error,
+              `${operation} failed`,
+            );
+          } finally {
+            failureStub.restore();
+          }
+          assertEquals(await Deno.readTextFile(original[0].path), "complete");
+          assertEquals(
+            await Deno.readTextFile(`${dir}/attachments.json`),
+            manifest,
+          );
+          assertEquals(
+            await Deno.readTextFile(`${dir}/.attachment-other-job.tmp`),
+            "in progress",
+          );
+          assertEquals(await listFileNames(dir), names);
+        } finally {
+          await Deno.remove(baseDir, { recursive: true });
+        }
+      });
+    }
+  },
+});
+
+Deno.test({
+  name: "WorkspaceManager: 添付のHTTPエラーでは未消費のbodyを閉じる",
+  sanitizeResources: true,
+  sanitizeOps: true,
+  async fn() {
+    const baseDir = await createTestDir("workspace_test_");
+    const server = Deno.serve(
+      { hostname: "127.0.0.1", port: 0, onListen() {} },
+      () => new Response("unavailable", { status: 503 }),
+    );
+    const originalFetch = globalThis.fetch;
+    let response: Response | undefined;
+    const fetchStub = stub(globalThis, "fetch", async (input, init) => {
+      response = await originalFetch(input, init);
+      return response;
+    });
+    try {
+      const manager = new WorkspaceManager(baseDir);
+      await assertRejects(
+        () =>
+          manager.saveMessageAttachments("thread-1", "message-1", [{
+            id: "att-1",
+            name: "file.txt",
+            url: `http://127.0.0.1:${server.addr.port}/attachment`,
+            contentType: "text/plain",
+            size: 11,
+          }]),
+        Error,
+        "(503)",
+      );
+      assertExists(response);
+      assertEquals(response.bodyUsed, true);
+      assertEquals(
+        await listFileNames(
+          manager.getMessageAttachmentsDir("thread-1", "message-1"),
+        ),
+        [],
+      );
+    } finally {
+      fetchStub.restore();
+      await response?.body?.cancel().catch(() => undefined);
+      await server.shutdown();
+      await Deno.remove(baseDir, { recursive: true });
+    }
+  },
+});
+
+Deno.test("WorkspaceManager: 添付のbody解放に失敗してもHTTPエラーを維持する", async () => {
+  const baseDir = await createTestDir("workspace_test_");
+  const response = new Response(
+    new ReadableStream({
+      cancel() {
+        throw new Error("body cancellation failed");
+      },
+    }),
+    { status: 503 },
+  );
+  const fetchStub = stub(globalThis, "fetch", () => Promise.resolve(response));
+  try {
+    const manager = new WorkspaceManager(baseDir);
+    await assertRejects(
+      () =>
+        manager.saveMessageAttachments("thread-1", "message-1", [{
           id: "att-1",
           name: "file.txt",
-          url: "data:,complete",
+          url: "https://attachment.example/file",
           contentType: "text/plain",
-          size: 8,
-        }];
-        const original = await manager.saveMessageAttachments(
-          "thread-1",
-          "message-1",
-          attachments,
-        );
-        const dir = manager.getMessageAttachmentsDir("thread-1", "message-1");
-        const manifest = await Deno.readTextFile(`${dir}/attachments.json`);
-        await Deno.writeTextFile(
-          `${dir}/.attachment-other-job.tmp`,
-          "in progress",
-        );
-        const names = await listFileNames(dir);
-        const failureStub = stub(
-          Deno,
-          operation,
-          () => Promise.reject(new Error(`${operation} failed`)),
-        );
-        try {
-          await assertRejects(
-            () =>
-              manager.saveMessageAttachments(
-                "thread-1",
-                "message-1",
-                attachments,
-              ),
-            Error,
-            `${operation} failed`,
-          );
-        } finally {
-          failureStub.restore();
-        }
-        assertEquals(await Deno.readTextFile(original[0].path), "complete");
-        assertEquals(
-          await Deno.readTextFile(`${dir}/attachments.json`),
-          manifest,
-        );
-        assertEquals(
-          await Deno.readTextFile(`${dir}/.attachment-other-job.tmp`),
-          "in progress",
-        );
-        assertEquals(await listFileNames(dir), names);
-      } finally {
-        await Deno.remove(baseDir, { recursive: true });
-      }
-    });
+          size: 1,
+        }]),
+      Error,
+      "(503)",
+    );
+  } finally {
+    fetchStub.restore();
+    await Deno.remove(baseDir, { recursive: true });
   }
 });
 
@@ -300,6 +389,99 @@ Deno.test("WorkspaceManager: 一時ファイルはWORK_BASE_DIR配下に作成�
     } else {
       Deno.env.set("TMPDIR", originalTmpDir);
     }
+    await Deno.remove(baseDir, { recursive: true });
+  }
+});
+
+Deno.test("WorkspaceManager: 読込中のキャンセルは同じスレッドだけを止め、画像・資料を再送できる", async () => {
+  const baseDir = await createTestDir("workspace_test_");
+  const manager = new WorkspaceManager(baseDir);
+  const transfers = new PendingAttachmentDownloads();
+  const started = Promise.withResolvers<void>();
+  const releaseOther = Promise.withResolvers<void>();
+  const stopped = Promise.withResolvers<void>();
+  const server = Deno.serve(
+    { hostname: "127.0.0.1", port: 0, onListen() {} },
+    () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new Uint8Array([1]));
+          },
+          cancel() {
+            stopped.resolve();
+          },
+        }),
+      ),
+  );
+  const image = {
+    id: "img",
+    name: "pic.png",
+    contentType: "image/png",
+    size: null,
+    url: `http://127.0.0.1:${server.addr.port}/pic`,
+  };
+  const doc = {
+    id: "doc",
+    name: "notes.txt",
+    contentType: "text/plain",
+    size: null,
+    url: "data:,notes",
+  };
+  const writeFile = Deno.writeFile;
+  const writing = stub(
+    Deno,
+    "writeFile",
+    (...args: Parameters<typeof writeFile>) => {
+      const writing = writeFile(...args);
+      started.resolve();
+      return writing;
+    },
+  );
+  try {
+    const saving = transfers.run(
+      "thread",
+      (signal) =>
+        manager.saveMessageAttachments("thread", "msg", [image, doc], signal),
+    );
+    const other = transfers.run("other", async (signal) => {
+      await releaseOther.promise;
+      return signal.aborted;
+    });
+    await started.promise;
+    assertEquals(transfers.cancel("thread"), true);
+    assertEquals((await assertRejects(() => saving, Error)).name, "AbortError");
+    await stopped.promise;
+    releaseOther.resolve();
+    assertEquals(await other, false);
+    assertEquals(transfers.cancel("thread"), false);
+    const dir = manager.getMessageAttachmentsDir("thread", "msg");
+    assertEquals(await listFileNames(dir), []);
+    const saved = await transfers.run(
+      "thread",
+      (signal) =>
+        manager.saveMessageAttachments("thread", "msg", [{
+          ...image,
+          url: "data:,picture",
+        }, doc], signal),
+    );
+    assertEquals(await Deno.readTextFile(saved[0].path), "picture");
+    assertEquals(await Deno.readTextFile(saved[1].path), "notes");
+    assertEquals(getCodexImagePaths(saved), [saved[0].path]);
+    assertEquals(
+      formatPromptWithAttachments("続き", saved).includes(saved[1].path),
+      true,
+    );
+    assertEquals(
+      JSON.parse(await Deno.readTextFile(`${dir}/attachments.json`)),
+      saved,
+    );
+    assertEquals(transfers.cancel("thread"), false);
+  } finally {
+    releaseOther.resolve();
+    transfers.cancel("thread");
+    writing.restore();
+    await server.shutdown();
     await Deno.remove(baseDir, { recursive: true });
   }
 });

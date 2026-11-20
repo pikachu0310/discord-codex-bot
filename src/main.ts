@@ -20,9 +20,10 @@ import {
   buildQuestionButtons,
   parseQuestionButton,
 } from "./utils/discord-question.ts";
-import type {
-  AttachmentDownloadInput,
-  SavedAttachment,
+import {
+  type AttachmentDownloadInput,
+  PendingAttachmentDownloads,
+  type SavedAttachment,
 } from "./attachments.ts";
 import { Admin } from "./admin/admin.ts";
 import type { AdminError } from "./admin/types.ts";
@@ -352,6 +353,7 @@ if (envResult.isErr()) {
 }
 const env = envResult.value;
 
+const attachmentDownloads = new PendingAttachmentDownloads();
 const workspaceManager = new WorkspaceManager(env.WORK_BASE_DIR);
 await workspaceManager.initialize();
 
@@ -485,9 +487,14 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
       return;
     }
     await interaction.deferReply();
+    const cancelled = attachmentDownloads.cancel(interaction.channel.id);
     const worker = admin.getWorker(interaction.channel.id);
     if (worker.isOk() && !worker.value.isRunning?.()) {
-      await interaction.editReply("現在、実行中の作業はありません。");
+      await interaction.editReply(
+        cancelled
+          ? "添付の保存を中断しました。"
+          : "現在、実行中の作業はありません。",
+      );
       return;
     }
     const result = await admin.stopExecution(interaction.channel.id);
@@ -538,6 +545,7 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
     }
     const thread = interaction.channel;
     await interaction.deferReply();
+    attachmentDownloads.cancel(thread.id);
     const result = await admin.closeThread(thread.id);
     if (result.isErr()) {
       await interaction.editReply("クローズに失敗しました。");
@@ -804,6 +812,7 @@ client.on(Events.ThreadUpdate, (oldThread, newThread) => {
     if (!oldThread.archived && newThread.archived) {
       const threadInfo = await workspaceManager.loadThreadInfo(newThread.id);
       if (threadInfo?.status === "archived") return;
+      attachmentDownloads.cancel(newThread.id);
       await admin.terminateThread(newThread.id);
     }
   });
@@ -880,20 +889,34 @@ client.on(Events.MessageCreate, (message) => {
     const attachmentInputs = getAttachmentDownloadInputs(message);
     let savedAttachments: SavedAttachment[] = [];
     if (attachmentInputs.length > 0) {
-      await onProgress(
-        `📎 添付ファイル ${attachmentInputs.length} 件を保存しています...`,
-      );
       try {
-        savedAttachments = await workspaceManager.saveMessageAttachments(
+        savedAttachments = await attachmentDownloads.run(
           threadId,
-          message.id,
-          attachmentInputs,
+          async (signal) => {
+            await onProgress(
+              `📎 添付ファイル ${attachmentInputs.length} 件を保存しています...`,
+            );
+            signal.throwIfAborted();
+            const saved = await workspaceManager.saveMessageAttachments(
+              threadId,
+              message.id,
+              attachmentInputs,
+              signal,
+            );
+            await onReaction("📎");
+            return saved;
+          },
         );
-        await onReaction("📎");
       } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") {
+          await onReaction("⛔");
+          return;
+        }
+        console.error("[Attachment] Save failed", error);
+        await onReaction("❌");
         await sendThreadMessage(
           thread,
-          `添付ファイルの保存に失敗しました: ${(error as Error).message}`,
+          "添付ファイルを保存できませんでした。依頼文と添付をもう一度このスレッドに送ってください。",
         );
         return;
       }

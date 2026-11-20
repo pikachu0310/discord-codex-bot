@@ -1,5 +1,9 @@
 import { assertEquals, assertRejects } from "std/assert/mod.ts";
-import { DefaultCodexCommandExecutor } from "../src/worker/codex-executor.ts";
+import { WorkerConfiguration } from "../src/worker/worker-configuration.ts";
+import {
+  type CodexExecutionOptions,
+  DefaultCodexCommandExecutor,
+} from "../src/worker/codex-executor.ts";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -35,14 +39,14 @@ function setup(scenario: string) {
       notifications.set(method, pending);
       return pending.promise;
     },
-    run(signal?: AbortSignal) {
-      return executor.executeStreaming({
-        prompt: "依頼",
-        cwd: Deno.cwd(),
-        sessionId: "previous-session",
-        imagePaths: ["/tmp/image.png"],
-        developerInstructions: "日本語で回答",
-      }, (data) => {
+    run(signal?: AbortSignal, options: CodexExecutionOptions = {
+      prompt: "依頼",
+      cwd: Deno.cwd(),
+      sessionId: "previous-session",
+      imagePaths: ["/tmp/image.png"],
+      developerInstructions: "日本語で回答",
+    }) {
+      return executor.executeStreaming(options, (data) => {
         const packet = JSON.parse(new TextDecoder().decode(data));
         packets.push(packet);
         notifications.get(packet.method)?.resolve();
@@ -340,4 +344,52 @@ Deno.test("App Server: stopで質問ボタンも取り消す", async () => {
   abort.abort();
   await run;
   assertEquals(test.executor.getPendingQuestions(), []);
+});
+
+Deno.test("App Server: 本文・画像・追加指示を新規と再開の両方で独立して送る", async (t) => {
+  for (const sessionId of [undefined, "previous-session"]) {
+    for (const prompt of ["hello", "--help"]) {
+      for (const images of [[], ["/tmp/image 1.png", "/tmp/image-2.jpg"]]) {
+        for (
+          const instructions of [
+            undefined,
+            "Follow project instructions.\nPreserve user input.",
+          ]
+        ) {
+          await t.step(
+            JSON.stringify({ sessionId, prompt, images, instructions }),
+            async () => {
+              const server = setup("complete");
+              const options = new WorkerConfiguration(instructions)
+                .buildExecutionOptions(prompt, Deno.cwd(), sessionId, images);
+              assertEquals((await server.run(undefined, options)).isOk(), true);
+              assertEquals(
+                server.params("test/thread-method"),
+                sessionId ? "thread/resume" : "thread/start",
+              );
+              const thread = server.params("test/thread") as Record<
+                string,
+                unknown
+              >;
+              assertEquals(thread.threadId, sessionId);
+              assertEquals(thread.developerInstructions, instructions);
+              assertEquals(server.params("test/input"), {
+                threadId: "thread-1",
+                input: [
+                  { type: "text", text: prompt, text_elements: [] },
+                  ...images.map((path) => ({ type: "localImage", path })),
+                ],
+              });
+              assertEquals(
+                server.packets.some((packet) =>
+                  packet.type === "item.completed"
+                ),
+                true,
+              );
+            },
+          );
+        }
+      }
+    }
+  }
 });

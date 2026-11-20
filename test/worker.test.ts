@@ -1,4 +1,4 @@
-import { assertEquals } from "std/assert/mod.ts";
+import { assertEquals, assertRejects } from "std/assert/mod.ts";
 import { dirname, fromFileUrl } from "std/path/mod.ts";
 import { ok } from "neverthrow";
 import type {
@@ -481,5 +481,58 @@ Deno.test("Worker: 開始通知中のstopでも新しいCodexを起動しない"
     assertEquals((await run)._unsafeUnwrap(), "⛔ Codex実行を中断しました。");
     assertEquals(executor.executions.length, 0);
     assertEquals(worker.isRunning(), false);
+  });
+});
+
+Deno.test("Worker: 添付を再送すると実行中のセッションで画像と資料を受け取れる", async () => {
+  await withControlledWorker(async (worker, executor, manager) => {
+    const run = worker.processMessage("資料を待って作業を続けて");
+    try {
+      await executor.started.promise;
+      const doc = {
+        id: "doc",
+        name: "notes.txt",
+        contentType: "text/plain",
+        size: null,
+        url: "data:,notes",
+      };
+      const image = {
+        id: "img",
+        name: "pixel.png",
+        contentType: "image/png",
+        size: null,
+        url:
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jWSkAAAAASUVORK5CYII=",
+      };
+      const submit = async (url: string) => {
+        const saved = await manager.saveMessageAttachments(
+          "thread-concurrent",
+          "msg",
+          [doc, { ...image, url }],
+        );
+        return worker.processMessage("", saved);
+      };
+      await assertRejects(() => submit("data:image/png;base64,%%%"));
+      assertEquals(executor.inputs.length, 0);
+      assertEquals((await submit(image.url)).isOk(), true);
+      assertEquals(executor.executions.length, 1);
+      assertEquals(executor.inputs.length, 1);
+      const [input] = executor.inputs;
+      const dir = manager.getMessageAttachmentsDir("thread-concurrent", "msg");
+      assertEquals(input.sessionId, "new-session");
+      assertEquals(input.imagePaths, [`${dir}/002_img_pixel.png`]);
+      assertEquals(input.prompt.includes(`${dir}/001_doc_notes.txt`), true);
+      assertEquals(
+        await Deno.readTextFile(`${dir}/001_doc_notes.txt`),
+        "notes",
+      );
+      assertEquals(
+        (await Deno.readFile(input.imagePaths![0])).slice(0, 4),
+        new Uint8Array([137, 80, 78, 71]),
+      );
+    } finally {
+      executor.finished.resolve();
+      assertEquals((await run)._unsafeUnwrap(), "完了");
+    }
   });
 });

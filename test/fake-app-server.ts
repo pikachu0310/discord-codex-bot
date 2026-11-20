@@ -72,6 +72,7 @@ for await (
     initialized = true;
   } else if (["thread/start", "thread/resume"].includes(packet.method)) {
     if (!initialized) throw new Error("Missing initialized handshake");
+    await notify("test/thread-method", packet.method);
     await notify("test/thread", packet.params);
     await send({ id: packet.id, result: { thread: { id: "thread-1" } } });
   } else if (packet.method === "turn/start") {

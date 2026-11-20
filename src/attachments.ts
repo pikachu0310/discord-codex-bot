@@ -106,3 +106,34 @@ export function getCodexImagePaths(
     .filter((attachment) => attachment.isImage)
     .map((attachment) => attachment.path);
 }
+
+// Each message owns its download, even when several arrive in the same thread.
+export class PendingAttachmentDownloads {
+  private readonly pending = new Map<AbortController, string>();
+
+  async run<T>(
+    threadId: string,
+    download: (signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
+    const controller = new AbortController();
+    this.pending.set(controller, threadId);
+    try {
+      const result = await download(controller.signal);
+      controller.signal.throwIfAborted();
+      return result;
+    } finally {
+      this.pending.delete(controller);
+    }
+  }
+
+  cancel(threadId: string): boolean {
+    let cancelled = false;
+    for (const [controller, owner] of this.pending) {
+      if (owner === threadId && !controller.signal.aborted) {
+        controller.abort();
+        cancelled = true;
+      }
+    }
+    return cancelled;
+  }
+}
