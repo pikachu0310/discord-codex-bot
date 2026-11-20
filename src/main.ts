@@ -262,6 +262,7 @@ async function handleQuestionButton(interaction: ButtonInteraction) {
     return;
   }
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  let accepted = false;
   try {
     // The executor checks the question ID again inside its serialized input
     // queue so a click racing another click or a text reply cannot answer twice.
@@ -276,10 +277,11 @@ async function handleQuestionButton(interaction: ButtonInteraction) {
     );
     if (result.isErr()) {
       await interaction.editReply(
-        "この回答は送信できませんでした。先に別の回答が受け付けられたか、質問が終了した可能性があります。スレッドの最新の質問を確認してください。",
+        "この回答の受付を確認できません。再送する前にスレッドの最新の応答と /status を確認してください。",
       );
       return;
     }
+    accepted = true;
     const content = typeof result.value === "string"
       ? result.value
       : result.value.content;
@@ -304,7 +306,9 @@ async function handleQuestionButton(interaction: ButtonInteraction) {
   } catch (error) {
     logUnexpectedError("QuestionButton", error);
     await interaction.editReply(
-      "回答の送信に失敗しました。同じスレッドに自由文で返信してください。",
+      accepted
+        ? "回答は受け付けました。Discordへの結果表示に失敗しました。/status で現在の状態を確認できます。"
+        : "回答の受付を確認できません。再送する前にスレッドの最新の応答を確認してください。",
     ).catch(() => {});
   } finally {
     await refreshQuestionButtons(thread.id);

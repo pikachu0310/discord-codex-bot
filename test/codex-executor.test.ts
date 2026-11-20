@@ -598,3 +598,22 @@ Deno.test("Discord: 2問目への返信に添えた資料と画像が届き、1�
     color.id,
   ]);
 });
+
+Deno.test("Discord: 受付応答だけが失われたボタンを自動再送しない", async () => {
+  const test = setup("async-disconnect");
+  const run = test.run();
+  await test.wait("question");
+  const [q] = test.executor.getPendingQuestions();
+  const input = {
+    prompt: "緑",
+    cwd: Deno.cwd(),
+    questionAnswer: { questionId: q.id, optionIndex: 1 },
+  };
+  const delivery = test.executor.sendInput(input);
+  await assertRejects(() => delivery, Error);
+  await run;
+  assertEquals(test.packets.filter((p) => p.method === "test/steer").length, 1);
+  assertEquals(test.executor.getPendingQuestions(), []);
+  const resumed = await test.executor.executeStreaming(input, () => {});
+  assertEquals(resumed.isErr(), true);
+});

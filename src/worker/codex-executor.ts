@@ -59,6 +59,13 @@ function failure(error: unknown): ExecutionResult {
   });
 }
 
+// A JSON-RPC error is a confirmed rejection. A broken pipe or timeout cannot
+// tell us whether Codex already processed the input.
+class AppServerRejection extends Error {}
+
+const UNCONFIRMED_INPUT =
+  "Codexへの送信結果を確認できません。再送する前にスレッドの最新の応答を確認してください。";
+
 /** JSONL RPC over one app-server process for the lifetime of a turn. */
 export class AppServerConnection {
   private nextId = 0;
@@ -131,7 +138,9 @@ export class AppServerConnection {
           clearTimeout(request.timer);
           if (packet.error) {
             const error = packet.error as Packet;
-            request.reject(new Error(String(error.message ?? packet.error)));
+            request.reject(
+              new AppServerRejection(String(error.message ?? packet.error)),
+            );
           } else {
             request.resolve((packet.result ?? {}) as Packet);
           }
@@ -279,6 +288,12 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
       const result = await connection.request("turn/start", {
         threadId,
         input: this.buildInput(preparedInput),
+      }).catch((error) => {
+        if (!(error instanceof AppServerRejection) && priorQuestions.length) {
+          this.consumeAsyncAnswer(options, priorQuestions);
+          throw new Error(UNCONFIRMED_INPUT, { cause: error });
+        }
+        throw error;
       });
       this.consumeAsyncAnswer(options, priorQuestions);
       // turn/started can arrive before the response.
@@ -375,24 +390,23 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
       }
       return true;
     }
+    const priorQuestions = this.asyncQuestions;
+    const input = this.buildInput(this.withAsyncAnswer(options));
     try {
-      const priorQuestions = this.asyncQuestions;
       await active.connection.request("turn/steer", {
         threadId: active.threadId,
         expectedTurnId: active.turnId,
-        input: this.buildInput(this.withAsyncAnswer(options)),
+        input,
       });
       this.consumeAsyncAnswer(options, priorQuestions);
       return true;
     } catch (error) {
-      // A completion notification may race the steer request. The Worker will
-      // wait for cleanup and start a new turn with the original input.
+      if (!(error instanceof AppServerRejection)) {
+        this.consumeAsyncAnswer(options, priorQuestions);
+        throw new Error(UNCONFIRMED_INPUT, { cause: error });
+      }
       if (
-        this.active !== active || !active.turnId ||
-        (error instanceof Error &&
-          /no active turn|expected.*turn.*(?:match|mismatch)/i.test(
-            error.message,
-          ))
+        /no active turn|expected.*turn.*(?:match|mismatch)/i.test(error.message)
       ) return false;
       throw error;
     }

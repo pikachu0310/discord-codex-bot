@@ -83,7 +83,8 @@ for await (
     });
     await send({ id: packet.id, result: { turn: { id: "turn-1" } } });
     if (
-      ["async-questions", "async-idle", "async-multiple"].includes(scenario)
+      ["async-questions", "async-idle", "async-multiple", "async-disconnect"]
+        .includes(scenario)
     ) {
       const text = packet.params.input[0].text;
       if (text.startsWith("質問「")) {
@@ -160,6 +161,7 @@ for await (
     }
   } else if (packet.method === "turn/steer") {
     await notify("test/steer", packet.params);
+    if (scenario === "async-disconnect") Deno.exit(1);
     if (scenario === "race") {
       await complete();
       await send({
