@@ -45,10 +45,6 @@ const REQUIRED_COMMANDS: SystemRequirement[] = [
     command: "codex",
     description: "Codex CLI tool",
   },
-  {
-    command: "script",
-    description: "Pseudo-terminal runner used for Codex /status",
-  },
 ];
 
 export async function checkSystemRequirements(): Promise<
@@ -164,7 +160,6 @@ export function formatSystemCheckResults(
     lines.push(
       "  - Codex CLI: https://help.openai.com/en/articles/11096431-openai-codex-ci-getting-started",
     );
-    lines.push("  - script: util-linux パッケージに含まれています");
   }
 
   return lines.join("\n");
