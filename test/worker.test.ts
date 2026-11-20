@@ -536,3 +536,17 @@ Deno.test("Worker: 添付を再送すると実行中のセッションで画像�
     }
   });
 });
+
+Deno.test("Worker: stopと行き違った入力で停止後に新しいturnを作らない", async () => {
+  await withControlledWorker(async (worker, executor) => {
+    executor.accepting = false;
+    const running = worker.processMessage("最初");
+    await executor.started.promise;
+    const queued = worker.processMessage("遅れて到着");
+    await worker.stopExecution();
+    executor.finished.resolve();
+    await running;
+    assertEquals((await queued).isErr(), true);
+    assertEquals(executor.executions.length, 1);
+  });
+});

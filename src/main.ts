@@ -18,6 +18,7 @@ import type { Message } from "discord.js";
 import type { PendingQuestion } from "./worker/types.ts";
 import {
   buildQuestionButtons,
+  captureDiscordAnswer,
   parseQuestionButton,
 } from "./utils/discord-question.ts";
 import {
@@ -182,16 +183,19 @@ async function refreshQuestionButtons(threadId: string) {
         []
       : [],
   );
-  for (const [id, entry] of messages) {
+  for (const [id, entry] of [...messages]) {
     if (pending.has(id)) continue;
+    messages.delete(id);
+    if (!entry.question.options.length) continue;
     await entry.message.edit({
       components: buildQuestionButtons(entry.question, true),
     }).catch((error) =>
       console.error("[QuestionButtons] disable failed", error)
     );
-    messages.delete(id);
   }
-  if (!messages.size) questionMessages.delete(threadId);
+  if (!messages.size && questionMessages.get(threadId) === messages) {
+    questionMessages.delete(threadId);
+  }
 }
 
 async function postProgress(
@@ -222,7 +226,7 @@ async function postProgress(
         flags: MessageFlags.SuppressNotifications,
       });
       lastUrl = sent.url;
-      if (entry.question && components.length) {
+      if (entry.question && index === chunks.length - 1) {
         const messages = questionMessages.get(thread.id) ?? new Map();
         messages.set(entry.question.id, {
           question: entry.question,
@@ -257,7 +261,6 @@ async function handleQuestionButton(interaction: ButtonInteraction) {
     return;
   }
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  const wasRunning = worker?.isOk() && worker.value.isRunning?.();
   try {
     // The executor checks the question ID again inside its serialized input
     // queue so a click racing another click or a text reply cannot answer twice.
@@ -276,14 +279,20 @@ async function handleQuestionButton(interaction: ButtonInteraction) {
       );
       return;
     }
-    await sendThreadMessage(thread, {
-      content: `✅ 回答「${label}」を受け付けました。`,
-      flags: MessageFlags.SuppressNotifications,
-    });
-    if (!wasRunning) {
-      const content = typeof result.value === "string"
-        ? result.value
-        : result.value.content;
+    const content = typeof result.value === "string"
+      ? result.value
+      : result.value.content;
+    const receipt = `✅ 回答「${label}」を受け付けました。`;
+    for (const chunk of chunkDiscordContent(receipt)) {
+      await sendThreadMessage(thread, {
+        content: chunk,
+        flags: MessageFlags.SuppressNotifications,
+      });
+    }
+    if (
+      content !== MESSAGES.ANSWER_ACCEPTED &&
+      content !== MESSAGES.INPUT_ACCEPTED
+    ) {
       for (const chunk of chunkDiscordContent(content)) {
         await sendThreadMessage(thread, chunk);
       }
@@ -489,7 +498,10 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
     await interaction.deferReply();
     const cancelled = attachmentDownloads.cancel(interaction.channel.id);
     const worker = admin.getWorker(interaction.channel.id);
-    if (worker.isOk() && !worker.value.isRunning?.()) {
+    if (
+      worker.isOk() && !worker.value.isRunning?.() &&
+      !worker.value.getPendingQuestion?.()
+    ) {
       await interaction.editReply(
         cancelled
           ? "添付の保存を中断しました。"
@@ -838,6 +850,26 @@ client.on(Events.MessageCreate, (message) => {
       return;
     }
 
+    // Bind the text to the question displayed when this Discord event arrived.
+    // Reactions and downloads below can finish after another answer or /stop.
+    const pendingIds = new Set(
+      workerResult.value.getPendingQuestions?.().map((q) => q.id),
+    );
+    const shown = [...(questionMessages.get(threadId)?.values() ?? [])].filter(
+      (entry) => pendingIds.has(entry.question.id),
+    );
+    const textAnswer = await captureDiscordAnswer(
+      message,
+      shown,
+      client.user?.id,
+    );
+    if (textAnswer === "expired") {
+      await replyToThreadMessage(
+        message,
+        "返信先の質問を確認できません。最新の質問に返信してください。",
+      );
+      return;
+    }
     let isFirstUserMessage = false;
     try {
       const threadInfo = await workspaceManager.loadThreadInfo(threadId);
@@ -856,8 +888,9 @@ client.on(Events.MessageCreate, (message) => {
       content: string,
       questions?: readonly PendingQuestion[],
     ) => {
-      if (content.startsWith("❓")) await onReaction("❓");
-      else if (
+      if (content.startsWith("❓")) {
+        await onReaction("❓");
+      } else if (
         workerResult.value.isRunning?.() &&
         !workerResult.value.getPendingQuestion?.()
       ) {
@@ -869,7 +902,9 @@ client.on(Events.MessageCreate, (message) => {
 
     const onReaction = async (emoji: string) => {
       for (const previous of ["👀", "⚙️", "❓"]) {
-        if (previous === emoji) continue;
+        if (previous === emoji) {
+          continue;
+        }
         const reaction = message.reactions.cache.find((r) =>
           r.emoji.name === previous
         );
@@ -922,7 +957,9 @@ client.on(Events.MessageCreate, (message) => {
       }
     }
 
-    if (!isRunning) void thread.sendTyping().catch(() => {});
+    if (!isRunning) {
+      void thread.sendTyping().catch(() => {});
+    }
     const typingTimer = !isRunning
       ? setInterval(() => {
         if (!workerResult.value.getPendingQuestion?.()) {
@@ -936,6 +973,7 @@ client.on(Events.MessageCreate, (message) => {
       savedAttachments,
       onProgress,
       onReaction,
+      textAnswer,
     ).finally(async () => {
       clearInterval(typingTimer);
       await refreshQuestionButtons(threadId);
@@ -1005,7 +1043,9 @@ client.on(Events.MessageCreate, (message) => {
       ? `${finalReply}\n${statusUnavailableNote}`
       : finalReply;
     const chunks = chunkDiscordContent(replyWithStatus);
-    if (chunks.length === 0) return;
+    if (chunks.length === 0) {
+      return;
+    }
     await replyToThreadMessage(message, chunks[0]);
     for (const chunk of chunks.slice(1)) {
       await sendThreadMessage(thread, chunk);

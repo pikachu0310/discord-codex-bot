@@ -101,9 +101,29 @@ export class Worker implements IWorker {
     onReaction?: (emoji: string) => Promise<void>,
     questionAnswer?: QuestionAnswer,
   ): Promise<Result<string, WorkerError>> {
+    if (
+      questionAnswer &&
+      !this.getPendingQuestions().some((q) =>
+        q.id === questionAnswer.questionId
+      )
+    ) {
+      return err({
+        type: "CODEX_EXECUTION_FAILED",
+        error:
+          "この質問は回答済み、または取り消し済みです。最新の質問を確認してください。",
+      });
+    }
     const active = this.activeExecution;
     if (active) {
+      const signal = this.abortController?.signal;
+      const interrupted = () =>
+        err({
+          type: "CODEX_EXECUTION_FAILED" as const,
+          error:
+            "作業は中断されました。この入力で再開するには、もう一度送ってください。",
+        });
       await this.executionReady;
+      if (signal?.aborted) return interrupted();
       try {
         const answering = !!this.getPendingQuestion();
         const accepted = await this.codexExecutor.sendInput(
@@ -117,9 +137,7 @@ export class Worker implements IWorker {
         if (accepted) {
           await onReaction?.(answering ? "✅" : "📨").catch(() => {});
           return ok(
-            answering
-              ? "✅ 回答を受け付けました。作業を続けます。"
-              : "📨 実行中のCodexにメッセージを届けました。",
+            answering ? MESSAGES.ANSWER_ACCEPTED : MESSAGES.INPUT_ACCEPTED,
           );
         }
       } catch (error) {
@@ -132,6 +150,7 @@ export class Worker implements IWorker {
       }
       // The active turn completed while the input was being prepared.
       await active;
+      if (signal?.aborted) return interrupted();
       return await this.processMessage(
         message,
         attachments,
@@ -391,7 +410,13 @@ export class Worker implements IWorker {
         this.state.sessionId,
         getCodexImagePaths(attachments),
       ),
-      ...(questionAnswer ? { questionAnswer } : {}),
+      ...(questionAnswer
+        ? {
+          questionAnswer,
+          attachmentContext: formatPromptWithAttachments("", attachments)
+            .trim(),
+        }
+        : {}),
     };
   }
 
@@ -579,7 +604,7 @@ export class Worker implements IWorker {
     onProgress?: (content: string) => Promise<void>,
   ): Promise<boolean> {
     if (!this.isExecuting || !this.abortController) {
-      return false;
+      return this.codexExecutor.cancelPendingQuestions?.() ?? false;
     }
 
     this.abortController.abort();

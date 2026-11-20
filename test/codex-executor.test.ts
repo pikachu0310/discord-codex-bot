@@ -1,3 +1,10 @@
+import {
+  buildQuestionButtons,
+  captureDiscordAnswer,
+  parseQuestionButton,
+} from "../src/utils/discord-question.ts";
+import { Worker } from "../src/worker/worker.ts";
+import { WorkspaceManager } from "../src/workspace/workspace.ts";
 import { assertEquals, assertRejects } from "std/assert/mod.ts";
 import { WorkerConfiguration } from "../src/worker/worker-configuration.ts";
 import {
@@ -392,4 +399,202 @@ Deno.test("App Server: 本文・画像・追加指示を新規と再開の両方
       }
     }
   }
+});
+
+Deno.test("Discord: ボタン直後の遅い自由文を次の質問に渡さない", async () => {
+  const test = setup("questions");
+  const abort = new AbortController();
+  const run = test.run(abort.signal);
+  try {
+    await test.wait("question");
+    const [shown] = test.executor.getPendingQuestions();
+    const id = (buildQuestionButtons(shown)[0].components[1].toJSON() as {
+      custom_id: string;
+    }).custom_id;
+    const button = parseQuestionButton(id!)!;
+    // Both events arrived while Discord was displaying the first question.
+    const message = {
+      id: "101",
+      reference: { messageId: "100" },
+      content: "同じ質問への別回答",
+      fetchReference: () =>
+        Promise.resolve({ author: { id: "bot" }, content: "❓ 言語" }),
+    };
+    const text = await captureDiscordAnswer(message, [{
+      question: shown,
+      message: { id: "100" },
+    }], "bot");
+    if (!text || text === "expired") throw new Error("Missing question");
+    await test.executor.sendInput({
+      prompt: "",
+      cwd: Deno.cwd(),
+      questionAnswer: button,
+    });
+    await assertRejects(
+      () =>
+        test.executor.sendInput({
+          prompt: text.text,
+          cwd: Deno.cwd(),
+          questionAnswer: text,
+        }),
+      Error,
+      "回答済み",
+    );
+    const [next] = test.executor.getPendingQuestions();
+    assertEquals(next.title, "補足を教えてください");
+  } finally {
+    abort.abort();
+    await run;
+  }
+});
+
+Deno.test("Discord: 中断直後に質問を無効化して回答を受理しない", async () => {
+  const test = setup("async-questions");
+  const abort = new AbortController();
+  const run = test.run(abort.signal);
+  try {
+    await test.wait("question");
+    abort.abort();
+    assertEquals(test.executor.getPendingQuestions(), []);
+  } finally {
+    await run;
+  }
+});
+
+Deno.test("Discord: 添付つきセッションの待機中にstopした後は、古いボタンも遅延回答も再開させない", async () => {
+  const server = setup("async-idle");
+  const dir = await Deno.makeTempDir();
+  try {
+    const manager = new WorkspaceManager(dir);
+    await manager.initialize();
+    const state = {
+      workerName: "bot",
+      threadId: "discord-1",
+      repository: { fullName: "example/repo", org: "example", repo: "repo" },
+      worktreePath: dir,
+      createdAt: new Date().toISOString(),
+      lastActiveAt: new Date().toISOString(),
+      status: "active" as const,
+    };
+    const worker = new Worker(state, manager, server.executor);
+    const assets = await manager.saveMessageAttachments(state.threadId, "101", [
+      {
+        id: "file",
+        name: "notes.txt",
+        url: "data:,notes",
+        contentType: "text/plain",
+        size: 5,
+      },
+    ]);
+    assertEquals(
+      (await worker.processMessage("この資料について質問して", assets)).isOk(),
+      true,
+    );
+    const [shown] = worker.getPendingQuestions();
+    const message = {
+      id: "103",
+      reference: { messageId: "102" },
+      content: "緑",
+      fetchReference: () =>
+        Promise.resolve({
+          author: { id: "bot" },
+          content: "❓ 確認用の色は？",
+        }),
+    };
+    const captured = await captureDiscordAnswer(message, [{
+      question: shown,
+      message: { id: "102" },
+    }], "bot");
+    if (!captured || captured === "expired") throw new Error("Missing reply");
+    const click = parseQuestionButton(
+      (buildQuestionButtons(shown)[0].components[1].toJSON() as {
+        custom_id: string;
+      }).custom_id!,
+    )!;
+    assertEquals(worker.isRunning(), false);
+    assertEquals(await worker.stopExecution(), true);
+    assertEquals(worker.getPendingQuestions(), []);
+    assertEquals(
+      (await worker.processMessage("緑", [], undefined, undefined, click))
+        .isErr(),
+      true,
+    );
+    assertEquals(
+      (await worker.processMessage("緑", [], undefined, undefined, captured))
+        .isErr(),
+      true,
+    );
+    assertEquals(await captureDiscordAnswer(message, [], "bot"), "expired");
+    // Restart with persisted state, then open a new question in the same channel.
+    const fresh = new Worker(
+      (await manager.loadWorkerState(state.threadId))!,
+      manager,
+      setup("async-idle").executor,
+    );
+    assertEquals((await fresh.processMessage("もう一度確認して")).isOk(), true);
+    const [next] = fresh.getPendingQuestions();
+    assertEquals(next.id === shown.id, false);
+    assertEquals(
+      (await fresh.processMessage("緑", [], undefined, undefined, click))
+        .isErr(),
+      true,
+    );
+    assertEquals(fresh.getPendingQuestions()[0].id, next.id);
+    assertEquals(
+      (await fresh.processMessage("青", [], undefined, undefined, {
+        questionId: next.id,
+        text: "青",
+      }))._unsafeUnwrap(),
+      "最終返信です。",
+    );
+    assertEquals(fresh.getPendingQuestions(), []);
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test("Discord: 2問目への返信に添えた資料と画像が届き、1問目のボタンは有効なまま残る", async () => {
+  const test = setup("async-multiple");
+  const run = test.run();
+  await test.wait("question");
+  const [color, shape] = test.executor.getPendingQuestions();
+  const posts = [{ question: color, message: { id: "100" } }, {
+    question: shape,
+    message: { id: "101" },
+  }];
+  const message = {
+    id: "102",
+    reference: { messageId: "101" },
+    content: "まる",
+    fetchReference: () => Promise.reject(new Error("already visible")),
+  };
+  const answer = await captureDiscordAnswer(message, posts, "bot");
+  if (!answer || answer === "expired") throw new Error("Missing reply");
+  assertEquals(answer.questionId, shape.id);
+  assertEquals(
+    await test.executor.sendInput({
+      prompt: message.content,
+      cwd: Deno.cwd(),
+      questionAnswer: answer,
+      imagePaths: ["/sample/picture.png"],
+      attachmentContext: "saved_path: /sample/notes.txt",
+    }),
+    true,
+  );
+  assertEquals(test.params("test/steer"), {
+    threadId: "thread-1",
+    expectedTurnId: "turn-1",
+    input: [
+      {
+        type: "text",
+        text: "質問「形は？」への回答: まる\n\nsaved_path: /sample/notes.txt",
+        text_elements: [],
+      },
+      { type: "localImage", path: "/sample/picture.png" },
+    ],
+  });
+  assertEquals((await run).isOk(), true);
+  assertEquals(test.executor.getPendingQuestions().map((q) => q.id), [
+    color.id,
+  ]);
 });

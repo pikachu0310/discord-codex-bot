@@ -8,10 +8,15 @@ export interface PendingQuestion {
   total: number;
 }
 
-export interface QuestionAnswer {
+export interface ButtonAnswer {
   questionId: string;
   optionIndex: number;
 }
+
+export type QuestionAnswer = ButtonAnswer | {
+  questionId: string;
+  text: string;
+};
 
 export type ProgressCallback = (
   content: string,

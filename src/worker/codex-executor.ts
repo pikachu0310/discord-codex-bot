@@ -14,6 +14,7 @@ export interface CodexExecutionOptions {
   imagePaths?: readonly string[];
   developerInstructions?: string;
   questionAnswer?: QuestionAnswer;
+  attachmentContext?: string;
 }
 
 type ExecutionResult = Result<
@@ -30,6 +31,7 @@ export interface CodexCommandExecutor {
   ): Promise<ExecutionResult>;
   // false means the turn ended before this input could be accepted.
   sendInput(options: CodexExecutionOptions): Promise<boolean>;
+  cancelPendingQuestions?(): boolean;
   getPendingQuestion?(): string | null;
   getPendingQuestions?(): readonly PendingQuestion[];
 }
@@ -219,6 +221,7 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
     let abortTimer: number | undefined;
     const stopped = () => ok({ code: 0, stderr: new Uint8Array() });
     const abort = () => {
+      this.cancelPendingQuestions();
       const active = this.active;
       if (active?.turnId) {
         void active.connection.request("turn/interrupt", {
@@ -244,7 +247,9 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
         this.spawnProcess(options.cwd),
         (packet) => {
           emit(packet);
-          this.handlePacket(packet, finish);
+          if (!abortSignal?.aborted || packet.method === "turn/completed") {
+            this.handlePacket(packet, finish);
+          }
         },
         (error) => finish(failure(error)),
       );
@@ -312,24 +317,28 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
     const active = this.active;
     if (!active?.turnId) return false;
     const request = active.requests[0];
-    if (options.questionAnswer) {
-      const selected = this.selectedAnswer(options.questionAnswer);
-      options = { ...options, prompt: selected.label };
-    }
     if (request) {
       const question = request.questions[request.index];
-      const choice = /^\d+$/.test(options.prompt.trim())
-        ? question.options?.[Number(options.prompt.trim()) - 1]?.label
+      const selected = options.questionAnswer
+        ? this.selectedAnswer(options.questionAnswer).label
         : undefined;
+      const choice =
+        selected === undefined && /^\d+$/.test(options.prompt.trim())
+          ? question.options?.[Number(options.prompt.trim()) - 1]?.label
+          : undefined;
       if (
-        /^\d+$/.test(options.prompt.trim()) && question.options?.length &&
+        selected === undefined && /^\d+$/.test(options.prompt.trim()) &&
+        question.options?.length &&
         !choice
       ) {
         throw new Error(
           `1〜${question.options.length}の番号、または自由文で回答してください。`,
         );
       }
-      const answer = choice ?? options.prompt;
+      const answer = [
+        selected ?? choice ?? options.prompt,
+        options.attachmentContext,
+      ].filter(Boolean).join("\n\n");
       const answers = {
         ...request.answers,
         [question.id]: { answers: [answer] },
@@ -348,6 +357,23 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
       }
       // Attachments on an answer are also delivered to the model as input.
       if (!options.imagePaths?.length) return true;
+      // The structured answer was committed. Do not replay it as a new turn
+      // if the model finishes before it can accept the supplementary images.
+      try {
+        await active.connection.request("turn/steer", {
+          threadId: active.threadId,
+          expectedTurnId: active.turnId,
+          input: this.buildInput({
+            ...options,
+            prompt: options.attachmentContext || "回答に添付された画像です。",
+          }),
+        });
+      } catch {
+        throw new Error(
+          "回答は受け付けましたが、画像は追加できませんでした。画像だけをもう一度送ってください。",
+        );
+      }
+      return true;
     }
     try {
       const priorQuestions = this.asyncQuestions;
@@ -370,6 +396,13 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
       ) return false;
       throw error;
     }
+  }
+
+  cancelPendingQuestions(): boolean {
+    const pending = !!this.getPendingQuestions().length;
+    this.asyncQuestions = [];
+    if (this.active) this.active.requests = [];
+    return pending;
   }
 
   getPendingQuestion(): string | null {
@@ -395,12 +428,24 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
     const question = this.getPendingQuestions().find((q) =>
       q.id === answer.questionId
     );
-    const label = question?.options[answer.optionIndex];
-    if (
-      !question || !Number.isInteger(answer.optionIndex) || label === undefined
-    ) {
+    if (!question) {
       throw new Error(
-        "この質問は回答済み、取り消し済み、または期限切れです。必要ならスレッドに自由文で返信してください。",
+        "この質問は回答済み、取り消し済み、または期限切れです。最新の質問を確認してください。",
+      );
+    }
+    if (
+      "text" in answer &&
+      (!/^\d+$/.test(answer.text.trim()) || !question.options.length)
+    ) {
+      return { question, label: answer.text };
+    }
+    const index = "text" in answer
+      ? Number(answer.text.trim()) - 1
+      : answer.optionIndex;
+    const label = question.options[index];
+    if (!Number.isInteger(index) || label === undefined) {
+      throw new Error(
+        `1〜${question.options.length}の番号、または自由文で回答してください。`,
       );
     }
     return { question, label };
@@ -418,7 +463,10 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
       }
       return {
         ...options,
-        prompt: `質問「${question.title}」への回答: ${label}`,
+        prompt: [
+          `質問「${question.title}」への回答: ${label}`,
+          options.attachmentContext,
+        ].filter(Boolean).join("\n\n"),
       };
     }
     if (this.asyncQuestions.length !== 1) return options;

@@ -1,5 +1,5 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
-import type { PendingQuestion, QuestionAnswer } from "../worker/types.ts";
+import type { ButtonAnswer, PendingQuestion } from "../worker/types.ts";
 
 const PREFIX = "codex-answer:";
 
@@ -40,7 +40,7 @@ export function buildQuestionButtons(
   return rows;
 }
 
-export function parseQuestionButton(customId: string): QuestionAnswer | null {
+export function parseQuestionButton(customId: string): ButtonAnswer | null {
   if (!customId.startsWith(PREFIX)) return null;
   const value = customId.slice(PREFIX.length);
   const separator = value.lastIndexOf(":");
@@ -49,4 +49,38 @@ export function parseQuestionButton(customId: string): QuestionAnswer | null {
     questionId: value.slice(0, separator),
     optionIndex: Number(value.slice(separator + 1)),
   };
+}
+
+type QuestionMessage = { question: PendingQuestion; message: { id: string } };
+
+// Resolve against the messages visible at receipt, before any Discord or file I/O.
+export async function captureDiscordAnswer(
+  message: {
+    id: string;
+    content: string;
+    reference: { messageId?: string } | null;
+    fetchReference(): Promise<{ author: { id: string }; content: string }>;
+  },
+  messages: Iterable<QuestionMessage>,
+  botId: string | undefined,
+) {
+  const shown = [...messages];
+  const reference = message.reference?.messageId;
+  let target = reference &&
+    shown.find((entry) => entry.message.id === reference);
+  if (reference && !target) {
+    const replyTo = await message.fetchReference().catch(() => undefined);
+    if (
+      !replyTo ||
+      (replyTo.author.id === botId && replyTo.content.startsWith("❓"))
+    ) {
+      return "expired" as const;
+    }
+  }
+  target ||= shown.find((entry) =>
+    BigInt(entry.message.id) < BigInt(message.id)
+  );
+  return target
+    ? { questionId: target.question.id, text: message.content }
+    : undefined;
 }

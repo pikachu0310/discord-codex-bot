@@ -22,6 +22,8 @@ export const PROCESS = {
 } as const;
 
 export const MESSAGES = {
+  ANSWER_ACCEPTED: "✅ 回答を受け付けました。作業を続けます。",
+  INPUT_ACCEPTED: "📨 実行中のCodexにメッセージを届けました。",
   RATE_LIMIT: "Codexのレート制限に達しました。時間を置いて再実行してください。",
   NO_FINAL_RESPONSE: "Codex からの応答を取得できませんでした。",
 } as const;
