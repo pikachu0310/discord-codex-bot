@@ -185,9 +185,9 @@ async function refreshQuestionButtons(threadId: string) {
       : [],
   );
   for (const [id, entry] of [...messages]) {
-    if (pending.has(id)) continue;
+    if (pending.has(entry.question.id)) continue;
     messages.delete(id);
-    if (!entry.question.options.length) continue;
+    if (!entry.message.components.length) continue;
     await entry.message.edit({
       components: buildQuestionButtons(entry.question, true),
     }).catch((error) =>
@@ -211,7 +211,9 @@ async function postProgress(
       content: questions.length === 1 ? content : [
         `❓ （${question.position}/${question.total}）${question.title}`,
         ...question.options.map((option, index) => `${index + 1}. ${option}`),
-        "ボタンで選択するか、このスレッドに自由文で回答してください。",
+        question.options.length
+          ? "ボタンで選ぶか、この質問に返信してください。"
+          : "この質問に自由文で返信してください。",
       ].join("\n"),
     }))
     : [{ question: undefined, content }];
@@ -227,9 +229,9 @@ async function postProgress(
         flags: MessageFlags.SuppressNotifications,
       });
       lastUrl = sent.url;
-      if (entry.question && index === chunks.length - 1) {
+      if (entry.question) {
         const messages = questionMessages.get(thread.id) ?? new Map();
-        messages.set(entry.question.id, {
+        messages.set(sent.id, {
           question: entry.question,
           message: sent,
         });
@@ -413,7 +415,7 @@ const commands = [
     .toJSON(),
   new SlashCommandBuilder()
     .setName("status")
-    .setDescription("Codexの利用制限を確認します")
+    .setDescription("作業状態、未回答の質問、Codexの利用枠を確認します")
     .toJSON(),
   new SlashCommandBuilder()
     .setName("active-threads")
