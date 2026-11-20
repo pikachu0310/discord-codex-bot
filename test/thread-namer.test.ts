@@ -64,15 +64,20 @@ Deno.test("generateConversationNamesWithCodex: stdoutを一度だけ回収する
       "回答",
       undefined,
       dir,
-      undefined,
+      "astra-medium",
       "threadNameは英語、branchSlugは日本語で作成してください",
     );
     assertEquals(result._unsafeUnwrap(), {
       threadName: "タイトル生成修正",
       branchName: "fix/collect-stdout-once",
     });
+    const argv = await Deno.readTextFile(argsFile);
     assertStringIncludes(
-      await Deno.readTextFile(argsFile),
+      argv,
+      'model_reasoning_effort="medium"\n--model\ngpt-6.2-astra',
+    );
+    assertStringIncludes(
+      argv,
       "threadNameは英語、branchSlugは日本語で作成してください",
     );
   } finally {

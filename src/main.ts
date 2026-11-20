@@ -1,3 +1,4 @@
+import { isModelPreset, MODEL_PRESETS } from "./model-presets.ts";
 import {
   ActivityType,
   AutocompleteInteraction,
@@ -396,6 +397,21 @@ const commands = [
     .setDescription("プランモードを有効にします")
     .toJSON(),
   new SlashCommandBuilder()
+    .setName("model")
+    .setDescription("このスレッドのモデルを確認・変更します")
+    .addStringOption((option) =>
+      option.setName("preset").setDescription(
+        "次のターンから使うモデルと推論の強さ",
+      )
+        .addChoices(
+          ...Object.entries(MODEL_PRESETS).map(([value, preset]) => ({
+            name: preset.label,
+            value,
+          })),
+        )
+    )
+    .toJSON(),
+  new SlashCommandBuilder()
     .setName("status")
     .setDescription("Codexの利用制限を確認します")
     .toJSON(),
@@ -521,6 +537,40 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
     return;
   }
 
+  if (commandName === "model") {
+    const result = interaction.channel?.isThread()
+      ? admin.getWorker(interaction.channel.id)
+      : null;
+    if (!result?.isOk()) {
+      await interaction.reply({
+        content: "Botの作業スレッド内で使ってください。",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+    const worker = result.value;
+    const value = interaction.options.getString("preset");
+    if (value === null || !isModelPreset(value)) {
+      await interaction.reply({
+        content: value === null
+          ? `次のターンのモデルは **${
+            MODEL_PRESETS[worker.getModelPreset()].label
+          }** です。`
+          : "一覧からモデルを選んでください。",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+    await interaction.deferReply();
+    const saved = await worker.setModelPreset(value);
+    await interaction.editReply(
+      saved.isOk()
+        ? `次のターンから **${MODEL_PRESETS[value].label}** を使います。`
+        : "モデル設定を保存できませんでした。/model で現在の設定を確認できます。",
+    );
+    return;
+  }
+
   if (commandName === "status") {
     await handleStatus(interaction);
     return;
@@ -575,6 +625,7 @@ async function handleStatus(interaction: ChatInputCommandInteraction) {
         : current.isRunning?.()
         ? "⚙️ 作業中（/stop で中断できます）"
         : "✅ 次の依頼を待っています。",
+      `次のターンのモデル: ${MODEL_PRESETS[current.getModelPreset()].label}`,
       `モード: ${current.isPlanMode() ? "プラン" : "通常"}`,
     ].join("\n")
     : "";
@@ -795,7 +846,9 @@ async function handleStart(interaction: ChatInputCommandInteraction) {
   await interaction.editReply(`${message}\nスレッド: ${thread.toString()}`);
   await sendThreadMessage(
     thread,
-    `${repository.fullName} の作業を始められます。依頼や添付ファイルをこのスレッドに送ってください。\n作業中の追記・質問への回答もここへ送れます。中断は /stop、計画から始める場合は /plan。人同士の会話は先頭に ! を付けるとBotは反応しません。`,
+    `${repository.fullName} の作業を始められます。依頼や添付ファイルをこのスレッドに送ってください。\nモデルは ${
+      MODEL_PRESETS[workerResult.value.getModelPreset()].label
+    } です。/model で変更できます。\n作業中の追記・質問への回答もここへ送れます。中断は /stop、計画から始める場合は /plan。人同士の会話は先頭に ! を付けるとBotは反応しません。`,
   );
 }
 
@@ -1000,7 +1053,7 @@ client.on(Events.MessageCreate, (message) => {
             replyContent,
             threadInfo.repositoryFullName ?? undefined,
             workerState.worktreePath,
-            env.CODEX_THREAD_NAMING_MODEL,
+            workerResult.value.getModelPreset(),
             env.CODEX_THREAD_NAMING_INSTRUCTIONS,
             async (error, attempt) => {
               console.error(

@@ -1,3 +1,8 @@
+import {
+  DEFAULT_MODEL_PRESET,
+  MODEL_PRESETS,
+  type ModelPresetId,
+} from "../model-presets.ts";
 import { err, ok, Result } from "neverthrow";
 import { TextLineStream } from "std/streams/text_line_stream.ts";
 import { CODEX, PROCESS } from "../constants.ts";
@@ -10,6 +15,7 @@ import type {
 export interface CodexExecutionOptions {
   prompt: string;
   cwd: string;
+  modelPreset?: ModelPresetId;
   sessionId?: string | null;
   imagePaths?: readonly string[];
   developerInstructions?: string;
@@ -255,6 +261,8 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
         capabilities: { experimentalApi: true },
       });
       await connection.write({ method: "initialized", params: {} });
+      const { model, effort } =
+        MODEL_PRESETS[options.modelPreset ?? DEFAULT_MODEL_PRESET];
       const thread = await connection.request(
         options.sessionId ? "thread/resume" : "thread/start",
         {
@@ -262,7 +270,8 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
           cwd: options.cwd,
           approvalPolicy: "never",
           sandbox: "danger-full-access",
-          config: { web_search: "live" },
+          model,
+          config: { web_search: "live", model_reasoning_effort: effort },
           ...(options.developerInstructions
             ? { developerInstructions: options.developerInstructions }
             : {}),
@@ -273,6 +282,8 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
       this.active = { connection, threadId, turnId: "", requests: [], emit };
       const result = await connection.request("turn/start", {
         threadId,
+        model,
+        effort,
         input: this.buildInput(preparedInput),
       });
       this.consumeAsyncAnswer(options, priorQuestions);

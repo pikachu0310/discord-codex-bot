@@ -1,3 +1,8 @@
+import {
+  DEFAULT_MODEL_PRESET,
+  MODEL_PRESETS,
+  type ModelPresetId,
+} from "./model-presets.ts";
 import { err, ok, Result } from "neverthrow";
 import { CODEX } from "./constants.ts";
 import { CodexStreamProcessor } from "./worker/codex-stream-processor.ts";
@@ -82,7 +87,7 @@ export async function generateConversationNamesWithCodex(
   firstResponse: string,
   repositoryName?: string,
   cwd?: string,
-  model: string = CODEX.THREAD_METADATA_MODEL,
+  preset: ModelPresetId = DEFAULT_MODEL_PRESET,
   namingInstructions?: string,
   onFailure?: (error: string, attempt: number) => void | Promise<void>,
 ): Promise<Result<ConversationNames, string>> {
@@ -112,9 +117,9 @@ export async function generateConversationNamesWithCodex(
       "--sandbox",
       "read-only",
       "--config",
-      'model_reasoning_effort="low"',
+      `model_reasoning_effort="${MODEL_PRESETS[preset].effort}"`,
       "--model",
-      model,
+      MODEL_PRESETS[preset].model,
       prompt,
     ],
     cwd,

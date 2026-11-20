@@ -483,3 +483,51 @@ Deno.test("Worker: 開始通知中のstopでも新しいCodexを起動しない"
     assertEquals(worker.isRunning(), false);
   });
 });
+
+Deno.test("モデル選択: 既存スレッドを復元し、同時保存と再起動後も他のスレッドから独立する", async () => {
+  const root = await Deno.makeTempDir();
+  try {
+    const ws = new WorkspaceManager(root);
+    await ws.initialize();
+    const now = new Date().toISOString();
+    const legacy: WorkerState = {
+      threadId: "thread-a",
+      workerName: "worker",
+      sessionId: "existing-session",
+      status: "active",
+      createdAt: now,
+      lastActiveAt: now,
+      isPlanMode: true,
+    };
+    await ws.saveWorkerState(legacy);
+    const a = await Worker.fromState(
+      (await ws.loadWorkerState("thread-a"))!,
+      ws,
+    );
+    const b = await Worker.fromState({ ...legacy, threadId: "thread-b" }, ws);
+    assertEquals(a.getModelPreset(), "sol-xhigh");
+    const writes = await Promise.all([
+      a.setModelPreset("sol-medium"),
+      a.setModelPreset("astra-xhigh"),
+      a.save(),
+      b.save(),
+    ]);
+    assertEquals(writes.every((r) => r.isOk()), true);
+    const restored = (await ws.loadWorkerState("thread-a"))!;
+    assertEquals(restored.sessionId, "existing-session");
+    assertEquals(restored.isPlanMode, true);
+    assertEquals(
+      (await Worker.fromState(restored, ws)).getModelPreset(),
+      "astra-xhigh",
+    );
+    assertEquals(
+      (await ws.loadWorkerState("thread-b"))?.modelPreset,
+      "sol-xhigh",
+    );
+    ws.saveWorkerState = () => Promise.reject(new Error("write failure"));
+    assertEquals((await a.setModelPreset("sol-medium")).isErr(), true);
+    assertEquals(a.getModelPreset(), "astra-xhigh");
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});

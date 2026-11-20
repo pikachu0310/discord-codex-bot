@@ -110,7 +110,6 @@ deno task start
 DISCORD_TOKEN=your_discord_bot_token_here
 WORK_BASE_DIR=/absolute/path/to/codex-bot-work
 CODEX_STATUS_TIME_ZONE=Asia/Tokyo
-CODEX_THREAD_NAMING_MODEL=gpt-5.6-luna
 CODEX_THREAD_NAMING_INSTRUCTIONS="threadNameは日本語、branchSlugは英語で作成してください"
 ```
 
@@ -126,7 +125,6 @@ CODEX_THREAD_NAMING_INSTRUCTIONS="threadNameは日本語、branchSlugは英語�
 | `WORK_BASE_DIR`                    | 必須 | Bot がリポジトリ、作業コピー、スレッド状態、ログを保存するディレクトリ。  |
 | `CODEX_APPEND_SYSTEM_PROMPT`       | 任意 | Codex CLI に渡す追加システムプロンプト。Bot 全体で共通適用されます。      |
 | `CODEX_STATUS_TIME_ZONE`           | 任意 | Codex limit reset 時刻の表示タイムゾーン。例: `Asia/Tokyo`。              |
-| `CODEX_THREAD_NAMING_MODEL`        | 任意 | 初回応答後のスレッド・ブランチ名生成モデル。既定: `gpt-5.6-luna`。        |
 | `CODEX_THREAD_NAMING_INSTRUCTIONS` | 任意 | スレッド名と `/` 以降のブランチ名について、言語や表現を指定する追加指示。 |
 
 ## 詳しい使い方
@@ -184,6 +182,7 @@ Bot再起動前の古いボタンは使用できませんが、同じスレッ�
 | `/start repository:owner/repo` | 通常チャンネル | リポジトリを準備し、新しい作業スレッドを作ります。                            |
 | `/stop`                        | 作業スレッド   | 実行中の Codex プロセスを中断します。                                         |
 | `/plan`                        | 作業スレッド   | プランモードを切り替えます。もう一度実行すると通常モードに戻ります。          |
+| `/model [preset]`              | 作業スレッド   | モデルと推論の強さを確認・変更します。                                        |
 | `/status`                      | どこでも       | Codex の 5h / Weekly limit を確認します。                                     |
 | `/active-threads`              | どこでも       | 現在アクティブな作業スレッドから、実行者宛てに silent mention を送ります。    |
 | `/close`                       | 作業スレッド   | Worker を終了し、Discord スレッドをクローズします。@everyone で実行できます。 |
@@ -231,10 +230,12 @@ Discordへ送るのは、Codexの進捗メッセージ・質問・最終回答�
 `never`、サンドボックスは `danger-full-access` です。 App Server
 の上記メソッドに対応した Codex CLI が必要です。
 
-Bot は `--model` や `model_reasoning_effort` を指定しません。モデル、reasoning
-effort、profile などの Codex CLI 設定は、Bot を起動するユーザーの Codex CLI
-設定に従います。通常は `$CODEX_HOME/config.toml` または `~/.codex/config.toml`
-を確認してください。
+新規スレッドとモデル未設定の既存スレッドは GPT-6.2 Sol / Extra High
+で始まります。 `/model` で次のターンのモデルを確認できます。`preset` で Sol
+または Astra と、 Medium または Extra High
+の組み合わせを選べます。設定はスレッドごとに保存され、 セッション再開・Bot
+再起動後も有効です。作業中に変更すると次のターンから適用されます。
+初回のスレッド名生成にも、そのスレッドの設定を使います。
 
 この Bot は Codex を自動実行するため、Bot
 専用の実行ユーザーと作業ディレクトリを用意することを推奨します。

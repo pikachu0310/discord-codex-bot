@@ -1,3 +1,4 @@
+import type { ModelPresetId } from "../model-presets.ts";
 import { ensureDir } from "std/fs/mod.ts";
 import { join, resolve } from "std/path/mod.ts";
 import {
@@ -47,6 +48,7 @@ export interface WorkerState {
   createdAt: string;
   lastActiveAt: string;
   isPlanMode?: boolean;
+  modelPreset?: ModelPresetId;
 }
 
 interface WorkspaceConfig {
@@ -292,10 +294,18 @@ export class WorkspaceManager {
 
   async saveWorkerState(workerState: WorkerState): Promise<void> {
     workerState.lastActiveAt = new Date().toISOString();
-    await Deno.writeTextFile(
-      join(this.config.workersDir, `${workerState.threadId}.json`),
-      JSON.stringify(workerState, null, 2),
-    );
+    const path = join(this.config.workersDir, `${workerState.threadId}.json`);
+    const temporary = await Deno.makeTempFile({
+      dir: this.config.workersDir,
+      suffix: ".tmp",
+    });
+    try {
+      await Deno.writeTextFile(temporary, JSON.stringify(workerState, null, 2));
+      await Deno.rename(temporary, path);
+    } catch (error) {
+      await Deno.remove(temporary).catch(() => {});
+      throw error;
+    }
   }
 
   async loadWorkerState(threadId: string): Promise<WorkerState | null> {

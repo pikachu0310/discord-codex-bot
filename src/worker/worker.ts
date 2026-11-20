@@ -1,3 +1,8 @@
+import {
+  DEFAULT_MODEL_PRESET,
+  isModelPreset,
+  type ModelPresetId,
+} from "../model-presets.ts";
 import { err, ok, Result } from "neverthrow";
 import {
   formatPromptWithAttachments,
@@ -78,6 +83,7 @@ export class Worker implements IWorker {
   private codexProcess: Deno.ChildProcess | null = null;
   private abortController: AbortController | null = null;
   private isExecuting = false;
+  private stateWrite = Promise.resolve();
   private activeExecution: Promise<Result<string, WorkerError>> | null = null;
   private executionReady: Promise<void> = Promise.resolve();
 
@@ -172,6 +178,12 @@ export class Worker implements IWorker {
       return err({ type: "REPOSITORY_NOT_SET" });
     }
 
+    const options = this.buildExecutionOptions(
+      message,
+      attachments,
+      true,
+      questionAnswer,
+    );
     this.isExecuting = true;
     this.abortController = new AbortController();
     this.codexProcess = null;
@@ -234,7 +246,7 @@ export class Worker implements IWorker {
         return ok("⛔ Codex実行を中断しました。");
       }
       const execution = this.codexExecutor.executeStreaming(
-        this.buildExecutionOptions(message, attachments, true, questionAnswer),
+        options,
         onData,
         this.abortController.signal,
         (process) => {
@@ -391,6 +403,7 @@ export class Worker implements IWorker {
         this.state.sessionId,
         getCodexImagePaths(attachments),
       ),
+      modelPreset: this.getModelPreset(),
       ...(questionAnswer ? { questionAnswer } : {}),
     };
   }
@@ -562,9 +575,33 @@ export class Worker implements IWorker {
     return await this.save();
   }
 
-  async save(): Promise<Result<void, WorkerError>> {
+  getModelPreset(): ModelPresetId {
+    return isModelPreset(this.state.modelPreset)
+      ? this.state.modelPreset
+      : DEFAULT_MODEL_PRESET;
+  }
+
+  setModelPreset(preset: ModelPresetId): Promise<Result<void, WorkerError>> {
+    return this.save(preset);
+  }
+
+  save(preset?: ModelPresetId): Promise<Result<void, WorkerError>> {
+    const result = this.stateWrite.then(() => this.persist(preset));
+    this.stateWrite = result.then(() => {});
+    return result;
+  }
+
+  private async persist(
+    preset?: ModelPresetId,
+  ): Promise<Result<void, WorkerError>> {
     try {
-      await this.workspaceManager.saveWorkerState(this.state);
+      const snapshot = {
+        ...this.state,
+        modelPreset: preset ?? this.getModelPreset(),
+      };
+      await this.workspaceManager.saveWorkerState(snapshot);
+      this.state.modelPreset = snapshot.modelPreset;
+      this.state.lastActiveAt = snapshot.lastActiveAt;
       return ok(undefined);
     } catch (error) {
       return err({

@@ -16,6 +16,10 @@ function createRouter(error: WorkerError): MessageRouter {
       throw new Error("not implemented");
     },
     stopExecution: () => Promise.resolve(false),
+    getModelPreset: () => "sol-xhigh",
+    setModelPreset: () => {
+      throw new Error("not implemented");
+    },
     isPlanMode: () => false,
     setPlanMode: () => {},
   };
@@ -39,6 +43,10 @@ function createRejectingRouter(error: unknown): MessageRouter {
       throw new Error("not implemented");
     },
     stopExecution: () => Promise.resolve(false),
+    getModelPreset: () => "sol-xhigh",
+    setModelPreset: () => {
+      throw new Error("not implemented");
+    },
     isPlanMode: () => false,
     setPlanMode: () => {},
   };

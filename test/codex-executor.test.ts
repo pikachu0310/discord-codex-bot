@@ -1,3 +1,5 @@
+import { isModelPreset, MODEL_PRESETS } from "../src/model-presets.ts";
+import type { CodexExecutionOptions } from "../src/worker/codex-executor.ts";
 import { assertEquals, assertRejects } from "std/assert/mod.ts";
 import { DefaultCodexCommandExecutor } from "../src/worker/codex-executor.ts";
 
@@ -35,13 +37,14 @@ function setup(scenario: string) {
       notifications.set(method, pending);
       return pending.promise;
     },
-    run(signal?: AbortSignal) {
+    run(signal?: AbortSignal, overrides: Partial<CodexExecutionOptions> = {}) {
       return executor.executeStreaming({
         prompt: "依頼",
         cwd: Deno.cwd(),
         sessionId: "previous-session",
         imagePaths: ["/tmp/image.png"],
         developerInstructions: "日本語で回答",
+        ...overrides,
       }, (data) => {
         const packet = JSON.parse(new TextDecoder().decode(data));
         packets.push(packet);
@@ -74,7 +77,7 @@ Deno.test("App Server: 初期化・resume・画像・追加入力・最終応答
     const thread = test.params("test/thread") as Record<string, unknown>;
     assertEquals(thread.threadId, "previous-session");
     assertEquals(thread.developerInstructions, "日本語で回答");
-    assertEquals(thread.model, undefined);
+    assertEquals(thread.model, "gpt-6.2-sol");
     assertEquals(test.params("test/steer"), {
       threadId: "thread-1",
       expectedTurnId: "turn-1",
@@ -340,4 +343,32 @@ Deno.test("App Server: stopで質問ボタンも取り消す", async () => {
   abort.abort();
   await run;
   assertEquals(test.executor.getPendingQuestions(), []);
+});
+
+Deno.test("モデル4種: start・resumeとturn/startの両方でモデル・effortが一致する", async () => {
+  for (const [id, preset] of Object.entries(MODEL_PRESETS)) {
+    if (!isModelPreset(id)) throw Error(id);
+    for (const sessionId of [undefined, "previous-session"]) {
+      const test = setup("complete");
+      assertEquals(
+        (await test.run(undefined, { modelPreset: id, sessionId })).isOk(),
+        true,
+      );
+      const thread = test.params("test/thread") as {
+        threadId?: string;
+        model: string;
+        config: { model_reasoning_effort: string };
+      };
+      const turn = test.params("test/input") as {
+        model: string;
+        effort: string;
+      };
+      assertEquals([
+        thread.threadId,
+        thread.model,
+        thread.config.model_reasoning_effort,
+      ], [sessionId, preset.model, preset.effort]);
+      assertEquals([turn.model, turn.effort], [preset.model, preset.effort]);
+    }
+  }
 });

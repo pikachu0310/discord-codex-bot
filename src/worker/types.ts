@@ -1,3 +1,4 @@
+import type { ModelPresetId } from "../model-presets.ts";
 import type { SavedAttachment } from "../attachments.ts";
 
 export interface PendingQuestion {
@@ -55,6 +56,10 @@ export interface IWorker {
   stopExecution(
     onProgress?: (content: string) => Promise<void>,
   ): Promise<boolean>;
+  getModelPreset(): ModelPresetId;
+  setModelPreset(
+    preset: ModelPresetId,
+  ): Promise<import("neverthrow").Result<void, WorkerError>>;
   isPlanMode(): boolean;
   setPlanMode(planMode: boolean): void;
 }
