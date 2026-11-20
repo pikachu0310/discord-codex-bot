@@ -876,6 +876,19 @@ client.on(Events.MessageCreate, (message) => {
     const shown = [...(questionMessages.get(threadId)?.values() ?? [])].filter(
       (entry) => pendingIds.has(entry.question.id),
     );
+    const claimed = await workerResult.value.claimDiscordMessage(message.id);
+    if (claimed.isErr()) {
+      console.error(
+        "[MessageCreate] failed to record Discord message",
+        claimed.error,
+      );
+      await replyToThreadMessage(
+        message,
+        "依頼の受付を保存できませんでした。この投稿をもう一度送ってください。",
+      );
+      return;
+    }
+    if (!claimed.value) return;
     const captured = await captureDiscordAnswer(
       message,
       shown,

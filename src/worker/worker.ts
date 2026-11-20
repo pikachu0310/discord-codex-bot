@@ -99,6 +99,21 @@ export class Worker implements IWorker {
     this.streamProcessor = new CodexStreamProcessor();
   }
 
+  async claimDiscordMessage(id: string): Promise<Result<boolean, WorkerError>> {
+    const recent = this.state.recentDiscordMessageIds ?? [];
+    if (recent.includes(id)) return ok(false);
+    // Mutate before awaiting disk so simultaneous copies of one gateway event
+    // cannot both start work. Bound the replay window per Discord thread.
+    this.state.recentDiscordMessageIds = [...recent.slice(-127), id];
+    const saved = await this.save();
+    if (saved.isErr()) {
+      this.state.recentDiscordMessageIds = this.state.recentDiscordMessageIds
+        .filter((seen) => seen !== id);
+      return err(saved.error);
+    }
+    return ok(true);
+  }
+
   async processMessage(
     message: string,
     attachments: readonly SavedAttachment[] = [],

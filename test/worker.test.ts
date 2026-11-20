@@ -550,3 +550,25 @@ Deno.test("Worker: stopと行き違った入力で停止後に新しいturnを�
     assertEquals(executor.executions.length, 1);
   });
 });
+
+Deno.test("Worker: 同じDiscord投稿の同時受信・再起動後の再配信は1回だけ受け付ける", async () => {
+  await withControlledWorker(async (worker, _executor, manager) => {
+    const [first, dup] = await Promise.all([
+      worker.claimDiscordMessage("101"),
+      worker.claimDiscordMessage("101"),
+    ]);
+    assertEquals([first._unsafeUnwrap(), dup._unsafeUnwrap()], [true, false]);
+    const restored = await Worker.fromState(
+      (await manager.loadWorkerState("thread-concurrent"))!,
+      manager,
+    );
+    assertEquals(
+      (await restored.claimDiscordMessage("101"))._unsafeUnwrap(),
+      false,
+    );
+    assertEquals(
+      (await restored.claimDiscordMessage("102"))._unsafeUnwrap(),
+      true,
+    );
+  });
+});

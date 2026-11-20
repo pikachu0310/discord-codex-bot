@@ -1,11 +1,12 @@
 import { assertEquals } from "std/assert/mod.ts";
-import { err } from "neverthrow";
+import { err, ok } from "neverthrow";
 import { MessageRouter } from "../src/admin/message-router.ts";
 import type { WorkerManager } from "../src/admin/worker-manager.ts";
 import type { IWorker, WorkerError } from "../src/worker/types.ts";
 
 function createRouter(error: WorkerError): MessageRouter {
   const worker: IWorker = {
+    claimDiscordMessage: () => Promise.resolve(ok(true)),
     processMessage: () => Promise.resolve(err(error)),
     getName: () => "test-worker",
     getRepository: () => null,
@@ -29,6 +30,7 @@ function createRouter(error: WorkerError): MessageRouter {
 
 function createRejectingRouter(error: unknown): MessageRouter {
   const worker: IWorker = {
+    claimDiscordMessage: () => Promise.resolve(ok(true)),
     processMessage: () => Promise.reject(error),
     getName: () => "test-worker",
     getRepository: () => null,

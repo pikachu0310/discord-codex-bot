@@ -45,6 +45,7 @@ export interface WorkerState {
   worktreePath?: string | null;
   sessionId?: string | null;
   pendingQuestions?: SavedQuestion[];
+  recentDiscordMessageIds?: string[];
   status: "active" | "inactive" | "archived";
   createdAt: string;
   lastActiveAt: string;

@@ -42,6 +42,9 @@ export type CodexExecutorError =
   | { type: "STREAM_PROCESSING_ERROR"; error: string };
 
 export interface IWorker {
+  claimDiscordMessage(
+    id: string,
+  ): Promise<import("neverthrow").Result<boolean, WorkerError>>;
   processMessage(
     message: string,
     attachments?: readonly SavedAttachment[],
