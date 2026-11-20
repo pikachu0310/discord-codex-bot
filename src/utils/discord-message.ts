@@ -6,6 +6,12 @@ function isSendableDiscordContent(content: string): boolean {
   return content.trim().length > 0;
 }
 
+function chunkEnd(text: string, start: number, limit: number): number {
+  const end = Math.min(start + limit, text.length);
+  const next = text.charCodeAt(end);
+  return next >= 0xdc00 && next <= 0xdfff && end > start + 1 ? end - 1 : end;
+}
+
 function splitTextSegment(
   text: string,
   chunkSize: number,
@@ -14,7 +20,7 @@ function splitTextSegment(
   let start = 0;
 
   while (start < text.length) {
-    const end = Math.min(start + chunkSize, text.length);
+    const end = chunkEnd(text, start, chunkSize);
     let slice = text.slice(start, end);
 
     if (end < text.length) {
@@ -47,30 +53,24 @@ function splitCodeBlockSegment(
 ): string[] {
   const pieces: string[] = [];
 
-  const firstLineEnd = segment.indexOf("\n");
-  const header = firstLineEnd !== -1 ? segment.slice(0, firstLineEnd) : "```";
+  if (segment.length <= chunkSize) return [segment];
   const closingIndex = segment.lastIndexOf("```");
-  const body = closingIndex !== -1
-    ? segment.slice(firstLineEnd + 1, closingIndex)
-    : segment.slice(firstLineEnd + 1);
-
-  const perChunkLimit = Math.max(
-    1,
-    chunkSize - (header.length + 1 + 3), // header + newline + closing ```
-  );
-
-  if (body.length <= perChunkLimit) {
-    const bodyWithNewline = body.endsWith("\n") ? body : `${body}\n`;
-    const chunk = `${header}\n${bodyWithNewline}\`\`\``;
-    if (isSendableDiscordContent(chunk)) {
-      pieces.push(chunk);
-    }
-    return pieces;
+  if (closingIndex < 3 || closingIndex !== segment.length - 3) {
+    return splitTextSegment(segment, chunkSize);
   }
+  const firstLineEnd = segment.indexOf("\n");
+  const header = firstLineEnd === -1 ? "```" : segment.slice(0, firstLineEnd);
+  const body = segment.slice(
+    firstLineEnd === -1 ? 3 : firstLineEnd + 1,
+    closingIndex,
+  );
+  // Reserve both surrounding newlines as well as the closing fence.
+  const perChunkLimit = chunkSize - header.length - 5;
+  if (perChunkLimit < 2) return splitTextSegment(segment, chunkSize);
 
   let start = 0;
   while (start < body.length) {
-    const end = Math.min(start + perChunkLimit, body.length);
+    const end = chunkEnd(body, start, perChunkLimit);
     let slice = body.slice(start, end);
 
     if (end < body.length) {
@@ -102,6 +102,9 @@ export function splitIntoDiscordChunks(
   content: string,
   chunkSize: number = DISCORD.MESSAGE_CHUNK_LENGTH,
 ): string[] {
+  if (!Number.isSafeInteger(chunkSize) || chunkSize < 2) {
+    throw new RangeError("chunkSize must be at least 2");
+  }
   if (!isSendableDiscordContent(content)) {
     return [];
   }

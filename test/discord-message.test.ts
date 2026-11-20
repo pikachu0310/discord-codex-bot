@@ -16,3 +16,17 @@ Deno.test("splitIntoDiscordChunks: コードブロック間の空白だけの区
     "```ts\nconst b = 2;\n```",
   ]);
 });
+
+Deno.test("splitIntoDiscordChunks: 日本語の回答の境界で絵文字が壊れない", () => {
+  const text = "あ".repeat(1499) + "🐈です";
+  const chunks = splitIntoDiscordChunks(text);
+  assertEquals(chunks.join(""), text);
+  assertEquals(chunks.every((piece) => piece === piece.toWellFormed()), true);
+});
+
+Deno.test("splitIntoDiscordChunks: 長いインラインの三連バッククォートで本文を複製しない", () => {
+  const text = "```" + "日".repeat(1700) + "```";
+  const parts = splitIntoDiscordChunks(text);
+  assertEquals(parts.join("").match(/日/g)?.length, 1700);
+  assertEquals(parts.every((p) => p.length <= 1500), true);
+});
