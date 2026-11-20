@@ -488,3 +488,39 @@ Deno.test("WorkspaceManager: 読込中のキャンセルは同じスレッドだ
     await Deno.remove(baseDir, { recursive: true });
   }
 });
+
+Deno.test("WorkspaceManager: 状態ファイルの書込みが途中で失敗しても以前のセッションを読める", async () => {
+  const dir = await createTestDir("workspace_state_");
+  try {
+    const manager = new WorkspaceManager(dir);
+    await manager.initialize();
+    const now = new Date().toISOString();
+    const state: WorkerState = {
+      threadId: "1",
+      workerName: "w",
+      createdAt: now,
+      lastActiveAt: now,
+      status: "active",
+      sessionId: "before",
+    };
+    await manager.saveWorkerState(state);
+    const write = Deno.writeTextFile;
+    const broken = stub(Deno, "writeTextFile", async (path) => {
+      await write(path, "{");
+      throw new Error("write interrupted");
+    });
+    try {
+      await assertRejects(
+        () => manager.saveWorkerState({ ...state, sessionId: "after" }),
+        Error,
+        "write interrupted",
+      );
+    } finally {
+      broken.restore();
+    }
+    assertEquals((await manager.loadWorkerState("1"))?.sessionId, "before");
+    assertEquals(await listFileNames(`${dir}/workers`), ["1.json"]);
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});

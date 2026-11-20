@@ -1,5 +1,5 @@
 import { ensureDir } from "std/fs/mod.ts";
-import { join, resolve } from "std/path/mod.ts";
+import { dirname, join, resolve } from "std/path/mod.ts";
 import {
   type AttachmentDownloadInput,
   isCodexImageAttachment,
@@ -64,6 +64,7 @@ interface WorkspaceConfig {
 
 export class WorkspaceManager {
   private readonly config: WorkspaceConfig;
+  private readonly stateWrites = new Map<string, Promise<void>>();
 
   constructor(baseDir: string) {
     const resolvedBaseDir = resolve(baseDir);
@@ -209,10 +210,7 @@ export class WorkspaceManager {
       });
     }
 
-    await Deno.writeTextFile(
-      join(dir, "attachments.json"),
-      JSON.stringify(savedAttachments, null, 2),
-    );
+    await this.writeState(join(dir, "attachments.json"), savedAttachments);
 
     return savedAttachments;
   }
@@ -251,10 +249,44 @@ export class WorkspaceManager {
     }
   }
 
+  // Publish a complete snapshot in call order. Readers always see the last
+  // finished write, including when a later disk write fails halfway through.
+  private async writeState(path: string, state: unknown): Promise<void> {
+    const json = JSON.stringify(state, null, 2);
+    const previous = this.stateWrites.get(path) ?? Promise.resolve();
+    const write = previous.catch(() => {}).then(async () => {
+      const tmp = await Deno.makeTempFile({
+        dir: dirname(path),
+        prefix: ".state-",
+        suffix: ".tmp",
+      });
+      try {
+        await Deno.writeTextFile(tmp, json);
+        await Deno.rename(tmp, path);
+      } catch (error) {
+        await Deno.remove(tmp).catch((cleanupError) => {
+          if (!(cleanupError instanceof Deno.errors.NotFound)) {
+            throw new AggregateError(
+              [error, cleanupError],
+              "State write and cleanup failed",
+            );
+          }
+        });
+        throw error;
+      }
+    });
+    this.stateWrites.set(path, write);
+    try {
+      await write;
+    } finally {
+      if (this.stateWrites.get(path) === write) this.stateWrites.delete(path);
+    }
+  }
+
   async saveThreadInfo(threadInfo: ThreadInfo): Promise<void> {
-    await Deno.writeTextFile(
+    await this.writeState(
       join(this.config.threadsDir, `${threadInfo.threadId}.json`),
-      JSON.stringify(threadInfo, null, 2),
+      threadInfo,
     );
   }
 
@@ -299,9 +331,9 @@ export class WorkspaceManager {
 
   async saveWorkerState(workerState: WorkerState): Promise<void> {
     workerState.lastActiveAt = new Date().toISOString();
-    await Deno.writeTextFile(
+    await this.writeState(
       join(this.config.workersDir, `${workerState.threadId}.json`),
-      JSON.stringify(workerState, null, 2),
+      workerState,
     );
   }
 
@@ -348,9 +380,9 @@ export class WorkspaceManager {
 
   async saveAdminState(adminState: AdminState): Promise<void> {
     adminState.lastUpdated = new Date().toISOString();
-    await Deno.writeTextFile(
+    await this.writeState(
       join(this.config.adminDir, "active_threads.json"),
-      JSON.stringify(adminState, null, 2),
+      adminState,
     );
   }
 
