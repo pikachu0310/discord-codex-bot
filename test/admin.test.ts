@@ -30,23 +30,50 @@ Deno.test("Admin: closeは実行終了を待ってから作業コピーを削除
   const admin = Admin.fromState(null, workspace);
   const internals = admin as unknown as {
     workerManager: {
-      removeWorker: () => { stopExecution: () => Promise<boolean> };
+      removeWorker: () => { stopExecution: () => Promise<boolean> } | null;
     };
   };
   let release!: () => void;
   const stopped = new Promise<void>((resolve) => release = resolve);
-  internals.workerManager.removeWorker = () => ({
+  const worker = {
     async stopExecution() {
       events.push("stop");
       await stopped;
       events.push("stopped");
       return true;
     },
-  });
+  };
+  let removed = false;
+  internals.workerManager.removeWorker = () => {
+    if (removed) return null;
+    removed = true;
+    return worker;
+  };
   const closing = admin.closeThread("thread-1");
+  const archived = admin.terminateThread("thread-1");
   await Promise.resolve();
   assertEquals(events, ["stop"]);
   release();
   assertEquals((await closing).isOk(), true);
+  assertEquals((await archived).isOk(), true);
   assertEquals(events, ["stop", "stopped", "remove"]);
+});
+
+Deno.test("Admin: Botの管理外スレッドはcloseの対象にしない", async () => {
+  const manager = new WorkspaceManager(".");
+  manager.loadThreadInfo = async () => null;
+  const operations: string[] = [];
+  manager.removeWorktree = async () => {
+    operations.push("remove");
+  };
+  manager.loadWorkerState = async () => null;
+  manager.saveAdminState = async () => {
+    operations.push("save");
+  };
+  manager.appendAuditLog = async () => {
+    operations.push("audit");
+  };
+  const admin = Admin.fromState(null, manager);
+  assertEquals((await admin.closeThread("unmanaged")).isErr(), true);
+  assertEquals(operations, []);
 });

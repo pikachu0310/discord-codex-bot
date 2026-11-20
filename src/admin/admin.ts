@@ -23,6 +23,10 @@ export class Admin implements IAdmin {
   private readonly workerManager: WorkerManager;
   private readonly rateLimitManager: RateLimitManager;
   private readonly messageRouter: MessageRouter;
+  private readonly closingThreads = new Map<
+    string,
+    Promise<Result<void, AdminError>>
+  >();
   private onThreadClose?: (threadId: string) => Promise<void>;
 
   constructor(
@@ -184,7 +188,37 @@ export class Admin implements IAdmin {
   }
 
   async terminateThread(threadId: string): Promise<Result<void, AdminError>> {
+    const closing = this.closingThreads.get(threadId);
+    if (closing) return await closing;
+    const operation = this.finishClosingThread(threadId).catch((error) =>
+      err<void, AdminError>({
+        type: "WORKSPACE_ERROR",
+        operation: "closeThread",
+        error: formatUnknownError(error),
+      })
+    );
+    this.closingThreads.set(threadId, operation);
+    try {
+      return await operation;
+    } finally {
+      this.closingThreads.delete(threadId);
+    }
+  }
+
+  private async finishClosingThread(
+    threadId: string,
+  ): Promise<Result<void, AdminError>> {
     const worker = this.workerManager.removeWorker(threadId);
+    if (!worker) {
+      const known = await this.workspaceManager.loadThreadInfo(threadId);
+      if (!known) return err({ type: "WORKER_NOT_FOUND", threadId });
+      if (known.status === "archived") {
+        if (this.state.activeThreadIds.includes(threadId)) {
+          await this.removeActiveThread(threadId);
+        }
+        return ok(undefined);
+      }
+    }
     await worker?.stopExecution();
     await this.workspaceManager.removeWorktree(threadId);
 

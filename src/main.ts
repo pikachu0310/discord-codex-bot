@@ -567,7 +567,11 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
     attachmentDownloads.cancel(thread.id);
     const result = await admin.closeThread(thread.id);
     if (result.isErr()) {
-      await interaction.editReply("クローズに失敗しました。");
+      await interaction.editReply(
+        result.error.type === "WORKER_NOT_FOUND"
+          ? "このスレッドはBotの作業スレッドではありません。"
+          : "作業を閉じられませんでした。状態を確認して /close をもう一度実行してください。",
+      );
       return;
     }
     await refreshQuestionButtons(thread.id);
@@ -834,7 +838,7 @@ client.on(Events.ThreadUpdate, (oldThread, newThread) => {
   void runSafely("ThreadUpdate", async () => {
     if (!oldThread.archived && newThread.archived) {
       const threadInfo = await workspaceManager.loadThreadInfo(newThread.id);
-      if (threadInfo?.status === "archived") return;
+      if (!threadInfo || threadInfo.status === "archived") return;
       attachmentDownloads.cancel(newThread.id);
       await admin.terminateThread(newThread.id);
     }
