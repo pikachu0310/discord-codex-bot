@@ -20,6 +20,7 @@ import {
   buildQuestionButtons,
   captureDiscordAnswer,
   parseQuestionButton,
+  questionStatusMessages,
 } from "./utils/discord-question.ts";
 import {
   type AttachmentDownloadInput,
@@ -587,30 +588,34 @@ async function handleStatus(interaction: ChatInputCommandInteraction) {
     ? admin.getWorker(interaction.channel.id)
     : null;
   const current = worker?.isOk() ? worker.value : null;
-  const question = current?.getPendingQuestion?.();
+  const result = await getAndApplyCodexStatus(Deno.cwd());
+  const questions = current?.getPendingQuestions?.() ?? [];
+  const saving = interaction.channelId &&
+    attachmentDownloads.isSaving(interaction.channelId);
   const state = current
     ? [
-      question
-        ? `❓ 回答待ち: ${question}`
+      ...(saving ? ["📎 添付を保存中（/stop で中断できます）"] : []),
+      ...(questions.length
+        ? [`❓ 回答待ち（${questions.length}件）`]
         : current.isRunning?.()
-        ? "⚙️ 作業中（/stop で中断できます）"
-        : "✅ 次の依頼を待っています。",
+        ? ["⚙️ 作業中（/stop で中断できます）"]
+        : saving
+        ? []
+        : ["✅ 次の依頼を待っています。"]),
       `モード: ${current.isPlanMode() ? "プラン" : "通常"}`,
-    ].join("\n")
-    : "";
-
-  const result = await getAndApplyCodexStatus(Deno.cwd());
-  if (result.isErr()) {
-    await interaction.editReply(
-      [state, formatCodexStatusError(result.error)].filter(Boolean).join("\n"),
-    );
-    return;
+    ]
+    : [];
+  const usage = result.isErr()
+    ? formatCodexStatusError(result.error)
+    : `\`\`\`kotlin\n${formatCodexStatus(result.value)}\n\`\`\``;
+  const [summary, ...more] = chunkDiscordContent([...state, usage].join("\n"));
+  await interaction.editReply(summary);
+  for (const content of more) {
+    await interaction.followUp({ content, flags: MessageFlags.Ephemeral });
   }
-  await interaction.editReply(
-    [state, `\`\`\`kotlin\n${formatCodexStatus(result.value)}\n\`\`\``].filter(
-      Boolean,
-    ).join("\n"),
-  );
+  for (const payload of questionStatusMessages(questions)) {
+    await interaction.followUp({ ...payload, flags: MessageFlags.Ephemeral });
+  }
 }
 
 async function getAndApplyCodexStatus(cwd: string) {

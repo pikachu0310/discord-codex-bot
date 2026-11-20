@@ -126,6 +126,13 @@ export class PendingAttachmentDownloads {
     }
   }
 
+  isSaving(threadId: string): boolean {
+    for (const [controller, owner] of this.pending) {
+      if (owner === threadId && !controller.signal.aborted) return true;
+    }
+    return false;
+  }
+
   cancel(threadId: string): boolean {
     let cancelled = false;
     for (const [controller, owner] of this.pending) {

@@ -449,7 +449,10 @@ Deno.test("WorkspaceManager: 読込中のキャンセルは同じスレッドだ
       return signal.aborted;
     });
     await started.promise;
+    assertEquals(transfers.isSaving("thread"), true);
     assertEquals(transfers.cancel("thread"), true);
+    assertEquals(transfers.isSaving("thread"), false);
+    assertEquals(transfers.isSaving("other"), true);
     assertEquals((await assertRejects(() => saving, Error)).name, "AbortError");
     await stopped.promise;
     releaseOther.resolve();

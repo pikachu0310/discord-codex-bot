@@ -1,3 +1,4 @@
+import { splitIntoDiscordChunks } from "./discord-message.ts";
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
 import type { ButtonAnswer, PendingQuestion } from "../worker/types.ts";
 
@@ -83,4 +84,21 @@ export async function captureDiscordAnswer(
   return target
     ? { questionId: target.question.id, text: message.content }
     : undefined;
+}
+
+export function questionStatusMessages(questions: readonly PendingQuestion[]) {
+  return questions.flatMap((question) => {
+    const text = [
+      `❓ ${question.title}`,
+      ...question.options.map((option, i) => `${i + 1}. ${option}`),
+      ...(question.options.length
+        ? []
+        : ["元の質問に自由文で返信してください。"]),
+    ].join("\n");
+    const parts = splitIntoDiscordChunks(text);
+    return parts.map((content, i) => ({
+      content,
+      components: i === parts.length - 1 ? buildQuestionButtons(question) : [],
+    }));
+  });
 }
