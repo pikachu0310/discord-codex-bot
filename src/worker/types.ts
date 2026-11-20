@@ -8,6 +8,8 @@ export interface PendingQuestion {
   total: number;
 }
 
+export type SavedQuestion = Omit<PendingQuestion, "id">;
+
 export interface ButtonAnswer {
   questionId: string;
   optionIndex: number;

@@ -639,3 +639,79 @@ Deno.test("App Server: 追加の質問も未回答なら保持し、同じ通知
     await run;
   }
 });
+
+Deno.test("Discord: 再起動後は待機中の質問だけを新しいIDで復元し、回答・stopを再実行しない", async () => {
+  const dir = await Deno.makeTempDir();
+  try {
+    const manager = new WorkspaceManager(dir);
+    await manager.initialize();
+    const now = new Date().toISOString();
+    const state = {
+      threadId: "discord",
+      workerName: "local",
+      repository: { org: "local", repo: "fixture", fullName: "local/fixture" },
+      worktreePath: dir,
+      status: "active" as const,
+      createdAt: now,
+      lastActiveAt: now,
+    };
+    const original = new Worker(state, manager, setup("async-idle").executor);
+    assertEquals((await original.processMessage("質問して")).isOk(), true);
+    const [old] = original.getPendingQuestions();
+    const recorded = await manager.loadWorkerState("discord");
+    assertEquals(recorded?.pendingQuestions?.map((q) => q.title), [old.title]);
+    assertEquals(
+      JSON.stringify(recorded?.pendingQuestions).includes(old.id),
+      false,
+    );
+    const server = setup("async-idle");
+    const restored = new Worker(recorded!, manager, server.executor);
+    const [question] = restored.getPendingQuestions();
+    assertEquals(question.id === old.id, false);
+    assertEquals(
+      (await restored.processMessage("", [], undefined, undefined, {
+        questionId: old.id,
+        optionIndex: 1,
+      })).isErr(),
+      true,
+    );
+    const result = await restored.processMessage(
+      "緑",
+      [],
+      undefined,
+      undefined,
+      { questionId: question.id, optionIndex: 1 },
+    );
+    assertEquals(result._unsafeUnwrap(), "最終返信です。");
+    assertEquals(
+      (await manager.loadWorkerState("discord"))?.pendingQuestions,
+      undefined,
+    );
+    const logs = `${dir}/sessions/local/fixture`;
+    const answers = [];
+    for await (const file of Deno.readDir(logs)) {
+      const raw = await Deno.readTextFile(`${logs}/${file.name}`);
+      answers.push(
+        ...raw.trim().split("\n").map((line) => JSON.parse(line)).filter(
+          (packet) => packet.method === "test/answer-input",
+        ).map((packet) => packet.params.text),
+      );
+    }
+    assertEquals(answers, ["質問「確認用の色は？」への回答: 緑"]);
+    assertEquals(
+      (await restored.processMessage("さらに質問して")).isOk(),
+      true,
+    );
+    const beforeStop = await manager.loadWorkerState("discord");
+    const idle = new Worker(beforeStop!, manager, setup("async-idle").executor);
+    assertEquals(await idle.stopExecution(), true);
+    const afterStop = (await manager.loadWorkerState("discord"))!;
+    assertEquals(afterStop.pendingQuestions, undefined);
+    assertEquals(
+      (await Worker.fromState(afterStop, manager)).getPendingQuestions(),
+      [],
+    );
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});

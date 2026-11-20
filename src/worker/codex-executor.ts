@@ -5,6 +5,7 @@ import type {
   CodexExecutorError,
   PendingQuestion,
   QuestionAnswer,
+  SavedQuestion,
 } from "./types.ts";
 
 export interface CodexExecutionOptions {
@@ -31,6 +32,7 @@ export interface CodexCommandExecutor {
   ): Promise<ExecutionResult>;
   // false means the turn ended before this input could be accepted.
   sendInput(options: CodexExecutionOptions): Promise<boolean>;
+  restorePendingQuestions?(questions: readonly SavedQuestion[]): void;
   cancelPendingQuestions?(): boolean;
   getPendingQuestion?(): string | null;
   getPendingQuestions?(): readonly PendingQuestion[];
@@ -422,6 +424,13 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
       ) return false;
       throw error;
     }
+  }
+
+  restorePendingQuestions(questions: readonly SavedQuestion[]): void {
+    this.asyncQuestions = questions.map((q) => ({
+      ...q,
+      id: crypto.randomUUID() + ":0",
+    }));
   }
 
   cancelPendingQuestions(): boolean {

@@ -161,7 +161,15 @@ export class Admin implements IAdmin {
     if (!worker) {
       return err({ type: "WORKER_NOT_FOUND", threadId });
     }
-    await worker.stopExecution();
+    try {
+      await worker.stopExecution();
+    } catch (error) {
+      return err({
+        type: "WORKSPACE_ERROR",
+        operation: "stopExecution",
+        error: formatUnknownError(error),
+      });
+    }
     await this.logAudit(threadId, "worker_stopped", {});
     return ok(undefined);
   }

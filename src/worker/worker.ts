@@ -77,7 +77,6 @@ export class Worker implements IWorker {
   private codexExecutor: CodexCommandExecutor;
   private codexProcess: Deno.ChildProcess | null = null;
   private abortController: AbortController | null = null;
-  private isExecuting = false;
   private activeExecution: Promise<Result<string, WorkerError>> | null = null;
   private executionReady: Promise<void> = Promise.resolve();
 
@@ -90,6 +89,12 @@ export class Worker implements IWorker {
     this.configuration = new WorkerConfiguration(appendSystemPrompt);
     this.codexExecutor = codexExecutor ??
       new DefaultCodexCommandExecutor();
+    if (
+      state.sessionId && state.status === "active" &&
+      state.pendingQuestions?.length
+    ) {
+      this.codexExecutor.restorePendingQuestions?.(state.pendingQuestions);
+    }
     this.sessionLogger = new SessionLogger(workspaceManager);
     this.streamProcessor = new CodexStreamProcessor();
   }
@@ -191,7 +196,6 @@ export class Worker implements IWorker {
       return err({ type: "REPOSITORY_NOT_SET" });
     }
 
-    this.isExecuting = true;
     this.abortController = new AbortController();
     this.codexProcess = null;
 
@@ -249,6 +253,10 @@ export class Worker implements IWorker {
     try {
       if (onReaction) await onReaction("⚙️").catch(() => {});
       await this.reportProgress(onProgress, "🤖 Codexが処理を開始しました...");
+      // Retire the durable offer before sending anything. If the process dies
+      // after the RPC, restart must not offer to submit the same answer again.
+      const cleared = await this.clearSavedQuestions();
+      if (cleared.isErr()) return err(cleared.error);
       if (this.abortController.signal.aborted) {
         return ok(MESSAGES.INTERRUPTED);
       }
@@ -341,7 +349,19 @@ export class Worker implements IWorker {
       }
 
       await this.saveRawCodexOutput(allOutput, this.state.sessionId);
-      await this.save();
+      const pending = this.getPendingQuestions();
+      if (
+        !this.abortController.signal.aborted && this.state.sessionId &&
+        pending.length
+      ) {
+        this.state.pendingQuestions = pending.map((
+          { title, options, position, total },
+        ) => ({ title, options, position, total }));
+      }
+      const saved = await this.save();
+      if (saved.isErr()) {
+        console.error("[Worker] session checkpoint failed", saved.error);
+      }
 
       return ok(
         this.formatter.formatResponse(
@@ -364,7 +384,6 @@ export class Worker implements IWorker {
         }),
       );
     } finally {
-      this.isExecuting = false;
       this.abortController = null;
       this.codexProcess = null;
       ready();
@@ -584,6 +603,8 @@ export class Worker implements IWorker {
     }
 
     this.state.sessionId = null;
+    delete this.state.pendingQuestions;
+    this.codexExecutor.cancelPendingQuestions?.();
     return await this.save();
   }
 
@@ -600,15 +621,32 @@ export class Worker implements IWorker {
     }
   }
 
+  private async clearSavedQuestions(): Promise<Result<void, WorkerError>> {
+    const prior = this.state.pendingQuestions;
+    if (!prior?.length) return ok(undefined);
+    delete this.state.pendingQuestions;
+    const result = await this.save();
+    if (result.isErr()) this.state.pendingQuestions = prior;
+    return result;
+  }
+
   async stopExecution(
     onProgress?: (content: string) => Promise<void>,
   ): Promise<boolean> {
-    if (!this.isExecuting || !this.abortController) {
-      return this.codexExecutor.cancelPendingQuestions?.() ?? false;
-    }
-
-    this.abortController.abort();
+    const controller = this.abortController;
     const process = this.codexProcess;
+    const cancelled = this.codexExecutor.cancelPendingQuestions?.() ?? false;
+    controller?.abort();
+    const cleared = await this.clearSavedQuestions();
+    if (cleared.isErr()) {
+      if (!controller && this.state.pendingQuestions) {
+        this.codexExecutor.restorePendingQuestions?.(
+          this.state.pendingQuestions,
+        );
+      }
+      throw new Error("回答待ちの取り消しを保存できませんでした。");
+    }
+    if (!controller) return cancelled;
     const timer = setTimeout(() => {
       try {
         process?.kill("SIGKILL");

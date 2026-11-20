@@ -257,7 +257,7 @@ async function handleQuestionButton(interaction: ButtonInteraction) {
   if (!thread?.isThread() || label === undefined) {
     await interaction.reply({
       content:
-        "この質問は回答済み、取り消し済み、またはBot再起動前のものです。必要なら同じスレッドに自由文で返信してください。",
+        "この質問は回答済み、取り消し済み、またはBot再起動前のものです。/status で現在の質問を確認してください。",
       flags: MessageFlags.Ephemeral,
     });
     await interaction.message.edit({ components: [] }).catch(() => {});
@@ -518,7 +518,11 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
     }
     const result = await admin.stopExecution(interaction.channel.id);
     if (result.isErr()) {
-      await interaction.editReply("中断対象が見つかりませんでした。");
+      await interaction.editReply(
+        result.error.type === "WORKER_NOT_FOUND"
+          ? "中断対象が見つかりませんでした。"
+          : "中断状態を保存できませんでした。/stop をもう一度実行してください。",
+      );
       return;
     }
     await refreshQuestionButtons(interaction.channel.id);
@@ -867,24 +871,25 @@ client.on(Events.MessageCreate, (message) => {
 
     // Bind the text to the question displayed when this Discord event arrived.
     // Reactions and downloads below can finish after another answer or /stop.
-    const pendingIds = new Set(
-      workerResult.value.getPendingQuestions?.().map((q) => q.id),
-    );
+    const pending = workerResult.value.getPendingQuestions?.() ?? [];
+    const pendingIds = new Set(pending.map((q) => q.id));
     const shown = [...(questionMessages.get(threadId)?.values() ?? [])].filter(
       (entry) => pendingIds.has(entry.question.id),
     );
-    const textAnswer = await captureDiscordAnswer(
+    const captured = await captureDiscordAnswer(
       message,
       shown,
       client.user?.id,
     );
-    if (textAnswer === "expired") {
+    if (captured === "expired") {
       await replyToThreadMessage(
         message,
         "返信先の質問を確認できません。最新の質問に返信してください。",
       );
       return;
     }
+    const textAnswer = captured ??
+      (pending[0] && { questionId: pending[0].id, text: message.content });
     let isFirstUserMessage = false;
     try {
       const threadInfo = await workspaceManager.loadThreadInfo(threadId);

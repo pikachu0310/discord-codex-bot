@@ -1,3 +1,4 @@
+import type { SavedQuestion } from "../worker/types.ts";
 import { ensureDir } from "std/fs/mod.ts";
 import { dirname, join, resolve } from "std/path/mod.ts";
 import {
@@ -43,6 +44,7 @@ export interface WorkerState {
   repositoryLocalPath?: string;
   worktreePath?: string | null;
   sessionId?: string | null;
+  pendingQuestions?: SavedQuestion[];
   status: "active" | "inactive" | "archived";
   createdAt: string;
   lastActiveAt: string;
