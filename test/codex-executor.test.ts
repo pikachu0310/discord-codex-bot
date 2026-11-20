@@ -617,3 +617,25 @@ Deno.test("Discord: 受付応答だけが失われたボタンを自動再送し
   const resumed = await test.executor.executeStreaming(input, () => {});
   assertEquals(resumed.isErr(), true);
 });
+
+Deno.test("App Server: 追加の質問も未回答なら保持し、同じ通知の再配信でボタンを作り直さない", async () => {
+  const test = setup("question-batches");
+  const abort = new AbortController();
+  const run = test.run(abort.signal);
+  try {
+    await test.wait("test/batches-ready");
+    const questions = test.executor.getPendingQuestions();
+    assertEquals(questions.map((q) => q.title), ["色は？", "形は？"]);
+    assertEquals(
+      test.packets.filter((p) => p.type === "progress" && p.questions).length,
+      2,
+    );
+    const update = test.packets.find((p) =>
+      (p.item as { text?: string })?.text === "添付を読み終えました。"
+    );
+    assertEquals((update?.item as { phase: string })?.phase, "commentary");
+  } finally {
+    abort.abort();
+    await run;
+  }
+});

@@ -191,6 +191,7 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
     threadId: string;
     turnId: string;
     requests: InputRequest[];
+    displayedAsyncItems: Set<string>;
     emit: (packet: Packet) => void;
   };
   private ready: Promise<void> = Promise.resolve();
@@ -284,7 +285,14 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
       );
       const threadId = (thread.thread as Packet).id as string;
       emit({ type: "thread.started", thread_id: threadId });
-      this.active = { connection, threadId, turnId: "", requests: [], emit };
+      this.active = {
+        connection,
+        threadId,
+        turnId: "",
+        requests: [],
+        displayedAsyncItems: new Set(),
+        emit,
+      };
       const result = await connection.request("turn/start", {
         threadId,
         input: this.buildInput(preparedInput),
@@ -332,7 +340,11 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
     const active = this.active;
     if (!active?.turnId) return false;
     const request = active.requests[0];
-    if (request) {
+    const targetsAsyncQuestion = options.questionAnswer &&
+      this.asyncQuestions.some((q) =>
+        q.id === options.questionAnswer?.questionId
+      );
+    if (request && !targetsAsyncQuestion) {
       const question = request.questions[request.index];
       const selected = options.questionAnswer
         ? this.selectedAnswer(options.questionAnswer).label
@@ -433,7 +445,7 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
         options: (question.options ?? []).map((option) => option.label),
         position: request.index + 1,
         total: request.questions.length,
-      }];
+      }, ...this.asyncQuestions];
     }
     return this.asyncQuestions;
   }
@@ -529,7 +541,7 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
     const question = request.questions[request.index];
     this.active?.emit({
       type: "progress",
-      questions: this.getPendingQuestions(),
+      questions: this.getPendingQuestions().slice(0, 1),
       item: {
         text: [
           `❓ ${question.header}: ${question.question}`,
@@ -582,17 +594,25 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
         // request_user_input_async is delivered as a final_answer item while
         // the turn is still running. Publishing it only at turn end deadlocks
         // users who cannot see the question Codex is waiting for.
+        if (
+          (questions.length || item.delivery === "async") &&
+          typeof item.id === "string"
+        ) {
+          if (active.displayedAsyncItems.has(item.id)) return;
+          active.displayedAsyncItems.add(item.id);
+        }
         if (questions.length) {
-          this.asyncQuestions = questions.map((question, index) => ({
+          const next = questions.map((question, index) => ({
             id: `${crypto.randomUUID()}:0`,
             title: question.title,
             options: question.options ?? [],
             position: index + 1,
             total: questions.length,
           }));
+          this.asyncQuestions = [...this.asyncQuestions, ...next];
           active.emit({
             type: "progress",
-            questions: this.asyncQuestions,
+            questions: next,
             item: {
               text: [
                 ...questions.map((question, index) =>
@@ -621,7 +641,7 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
           type: "item.completed",
           item: {
             type: "agent_message",
-            phase: item.phase,
+            phase: item.delivery === "async" ? "commentary" : item.phase,
             text: item.text,
           },
         });

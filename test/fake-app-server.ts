@@ -114,6 +114,35 @@ for await (
           });
         }
       }
+    } else if (scenario === "question-batches") {
+      for (
+        const [id, title] of [["one", "色は？"], ["two", "形は？"], [
+          "one",
+          "色は？",
+        ]]
+      ) {
+        await notify("item/completed", {
+          threadId: "thread-1",
+          item: {
+            id,
+            type: "agentMessage",
+            phase: "final_answer",
+            delivery: "async",
+            questions: [{ title, options: [] }],
+          },
+        });
+      }
+      await notify("item/completed", {
+        threadId: "thread-1",
+        item: {
+          id: "update",
+          type: "agentMessage",
+          phase: "final_answer",
+          delivery: "async",
+          text: "添付を読み終えました。",
+        },
+      });
+      await notify("test/batches-ready", {});
     } else if (scenario === "questions" || scenario === "resolved") {
       await send({
         id: "question-request",
