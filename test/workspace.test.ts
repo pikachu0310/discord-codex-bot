@@ -524,3 +524,70 @@ Deno.test("WorkspaceManager: 状態ファイルの書込みが途中で失敗し
     await Deno.remove(dir, { recursive: true });
   }
 });
+
+Deno.test("WorkspaceManager: 一時的なHTTPエラーは失敗した添付だけ一度再取得する", async () => {
+  const base = await createTestDir("workspace_retry_");
+  let requests = 0;
+  const first = new Response("busy", {
+    status: 503,
+    headers: { "retry-after": "0" },
+  });
+  const second = new Response("complete");
+  const fetchStub = stub(
+    globalThis,
+    "fetch",
+    () => Promise.resolve(requests++ === 0 ? first : second),
+  );
+  try {
+    const manager = new WorkspaceManager(base);
+    const [file] = await manager.saveMessageAttachments("thread", "msg", [{
+      id: "1",
+      name: "photo.png",
+      url: "https://attachment.example/photo",
+      size: null,
+      contentType: "image/png",
+    }]);
+    assertEquals(requests, 2);
+    assertEquals(first.bodyUsed, true);
+    assertEquals(await Deno.readTextFile(file.path), "complete");
+  } finally {
+    fetchStub.restore();
+    await Deno.remove(base, { recursive: true });
+  }
+});
+
+Deno.test("WorkspaceManager: 添付の再取得待ちに中断すると2回目を送らない", async () => {
+  const dir = await createTestDir("workspace_cancel_retry_");
+  const ctrl = new AbortController();
+  let requests = 0;
+  const response = new Response(
+    new ReadableStream({
+      cancel() {
+        ctrl.abort();
+      },
+    }),
+    { status: 429, headers: { "retry-after": "2" } },
+  );
+  const fetchStub = stub(globalThis, "fetch", () => {
+    requests++;
+    return Promise.resolve(response);
+  });
+  try {
+    const manager = new WorkspaceManager(dir);
+    const failure = await assertRejects(() =>
+      manager.saveMessageAttachments("thread", "msg", [{
+        name: "notes",
+        id: "1",
+        url: "https://attachment.example/notes",
+        contentType: null,
+        size: null,
+      }], ctrl.signal)
+    );
+    assertEquals(failure instanceof Error && failure.name, "AbortError");
+    assertEquals(requests, 1);
+    assertEquals(response.bodyUsed, true);
+  } finally {
+    fetchStub.restore();
+    await Deno.remove(dir, { recursive: true });
+  }
+});

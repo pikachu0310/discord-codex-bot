@@ -24,6 +24,7 @@ import {
 } from "./utils/discord-question.ts";
 import {
   type AttachmentDownloadInput,
+  AttachmentHttpError,
   PendingAttachmentDownloads,
   type SavedAttachment,
 } from "./attachments.ts";
@@ -988,7 +989,11 @@ client.on(Events.MessageCreate, (message) => {
         await onReaction("❌");
         await sendThreadMessage(
           thread,
-          "添付ファイルを保存できませんでした。依頼文と添付をもう一度このスレッドに送ってください。",
+          `${
+            error instanceof AttachmentHttpError
+              ? error.message
+              : "添付ファイルを保存できませんでした。"
+          }依頼文と添付をもう一度このスレッドに送ってください。`,
         );
         return;
       }

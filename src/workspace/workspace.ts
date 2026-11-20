@@ -3,6 +3,8 @@ import { ensureDir } from "std/fs/mod.ts";
 import { dirname, join, resolve } from "std/path/mod.ts";
 import {
   type AttachmentDownloadInput,
+  AttachmentHttpError,
+  fetchAttachment,
   isCodexImageAttachment,
   sanitizeAttachmentFileName,
   type SavedAttachment,
@@ -161,15 +163,13 @@ export class WorkspaceManager {
       }_${safeId}_${safeName}`;
       const path = join(dir, savedName);
 
-      const response = await fetch(attachment.url, { signal });
+      const response = await fetchAttachment(attachment, signal);
       try {
         if (!response.ok) {
-          throw new Error(
-            `Attachment download failed: ${attachment.url} (${response.status})`,
-          );
+          throw new AttachmentHttpError(originalName, response.status);
         }
         if (!response.body) {
-          throw new Error(`Attachment response has no body: ${attachment.url}`);
+          throw new Error(`Attachment response has no body: ${originalName}`);
         }
 
         const temporaryPath = await Deno.makeTempFile({

@@ -1,9 +1,36 @@
+import { delay } from "std/async/delay.ts";
 export interface AttachmentDownloadInput {
   id: string;
   name: string | null;
   url: string;
   contentType: string | null;
   size: number | null;
+}
+
+export class AttachmentHttpError extends Error {
+  constructor(name: string, status: number) {
+    super(`添付「${name}」を取得できませんでした (${status})。`);
+  }
+}
+
+export async function fetchAttachment(
+  attachment: AttachmentDownloadInput,
+  signal?: AbortSignal,
+): Promise<Response> {
+  const response = await fetch(attachment.url, { signal });
+  if (![429, 502, 503, 504].includes(response.status)) return response;
+  const hint = response.headers.get("retry-after")?.trim();
+  // Respect long server backoffs. The user can retry later without holding
+  // this message open. Only the failing download is ever retried.
+  const wait = hint === undefined
+    ? (response.status === 429 ? Infinity : 400)
+    : /^\d+$/.test(hint)
+    ? Number(hint) * 1000
+    : Math.max(0, Date.parse(hint) - Date.now());
+  if (!Number.isFinite(wait) || wait > 3000) return response;
+  await response.body?.cancel().catch(() => {});
+  await delay(wait, { signal });
+  return await fetch(attachment.url, { signal });
 }
 
 export interface SavedAttachment {
