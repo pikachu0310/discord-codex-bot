@@ -22,6 +22,7 @@ export const PROCESS = {
 } as const;
 
 export const MESSAGES = {
+  INTERRUPTED: "⛔ Codex実行を中断しました。",
   ANSWER_ACCEPTED: "✅ 回答を受け付けました。作業を続けます。",
   INPUT_ACCEPTED: "📨 実行中のCodexにメッセージを届けました。",
   RATE_LIMIT: "Codexのレート制限に達しました。時間を置いて再実行してください。",

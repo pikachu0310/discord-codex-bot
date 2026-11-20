@@ -1,6 +1,6 @@
 import { err, ok, Result } from "neverthrow";
 import { TextLineStream } from "std/streams/text_line_stream.ts";
-import { CODEX, PROCESS } from "../constants.ts";
+import { CODEX, MESSAGES, PROCESS } from "../constants.ts";
 import type {
   CodexExecutorError,
   PendingQuestion,
@@ -323,7 +323,7 @@ export class DefaultCodexCommandExecutor implements CodexCommandExecutor {
       }
       if (abortSignal?.aborted) {
         this.asyncQuestions = [];
-        emit({ type: "result", result: "⛔ Codex実行を中断しました。" });
+        emit({ type: "result", result: MESSAGES.INTERRUPTED });
       }
     }
   }

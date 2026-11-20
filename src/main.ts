@@ -42,7 +42,7 @@ import {
   stripTerminalControlSequences,
 } from "./codex-status.ts";
 import { type CodexUpdateError, updateCodexCli } from "./codex-update.ts";
-import { MESSAGES } from "./constants.ts";
+import { DISCORD, MESSAGES } from "./constants.ts";
 import { getEnv } from "./env.ts";
 import {
   ensureRepository,
@@ -911,7 +911,9 @@ client.on(Events.MessageCreate, (message) => {
         lastProgressMessageUrl;
     };
 
+    let lastReaction: string | undefined;
     const onReaction = async (emoji: string) => {
+      if (lastReaction === emoji) return;
       for (const previous of ["👀", "⚙️", "❓"]) {
         if (previous === emoji) {
           continue;
@@ -923,7 +925,9 @@ client.on(Events.MessageCreate, (message) => {
           await reaction.users.remove(client.user.id).catch(() => {});
         }
       }
-      await message.react(emoji).catch(() => {});
+      await message.react(emoji).then(() => {
+        lastReaction = emoji;
+      }).catch(() => {});
     };
 
     const isRunning = workerResult.value.isRunning?.() ?? false;
@@ -1019,18 +1023,16 @@ client.on(Events.MessageCreate, (message) => {
       return;
     }
 
-    const startStatusResult = await startStatusPromise;
-    const startStatus = startStatusResult?.isOk()
-      ? startStatusResult.value
-      : null;
     const reply = result.value;
     const replyContent = typeof reply === "string" ? reply : reply.content;
-    const endStatusResult = isRunning
-      ? null
-      : await getAndApplyCodexStatus(Deno.cwd());
-    const endStatus = endStatusResult?.isOk() ? endStatusResult.value : null;
     if (!isRunning) {
-      await onReaction(workerResult.value.getPendingQuestion?.() ? "❓" : "✅");
+      await onReaction(
+        replyContent === MESSAGES.INTERRUPTED
+          ? "⛔"
+          : workerResult.value.getPendingQuestion?.()
+          ? "❓"
+          : "✅",
+      );
     }
     const finalReply = replyContent.trim() === MESSAGES.NO_FINAL_RESPONSE &&
         workerResult.value.getPendingQuestion?.()
@@ -1039,30 +1041,42 @@ client.on(Events.MessageCreate, (message) => {
           lastProgressMessageUrl
       ? `Codexの最終テキストを取得できなかったため、直近の出力を参照してください。\n> ${lastProgressMessageUrl}`
       : replyContent;
-    const statusUnavailableNote = formatCodexStatusUnavailableNote(
-      endStatusResult?.isErr()
-        ? endStatusResult.error
-        : startStatusResult?.isErr()
-        ? startStatusResult.error
-        : undefined,
-    );
-    const replyWithStatus = startStatus && endStatus
-      ? `${finalReply}\n\`\`\`kotlin\n${
-        formatCodexStatusDelta(startStatus, endStatus)
-      }\n\`\`\``
-      : statusUnavailableNote
-      ? `${finalReply}\n${statusUnavailableNote}`
-      : finalReply;
-    const chunks = chunkDiscordContent(replyWithStatus);
-    if (chunks.length === 0) {
-      return;
-    }
-    await replyToThreadMessage(message, chunks[0]);
+    const chunks = chunkDiscordContent(finalReply);
+    if (!chunks.length) return;
+    let last = await replyToThreadMessage(message, chunks[0]);
     for (const chunk of chunks.slice(1)) {
-      await sendThreadMessage(thread, chunk);
+      last = await sendThreadMessage(thread, chunk);
     }
 
-    if (isFirstUserMessage && message.content.trim()) {
+    // Deliver the answer immediately, even if the account status is slow.
+    if (!isRunning) {
+      const start = await startStatusPromise;
+      const end = await getAndApplyCodexStatus(Deno.cwd());
+      const note = start?.isOk() && end.isOk()
+        ? `\`\`\`kotlin\n${
+          formatCodexStatusDelta(start.value, end.value)
+        }\n\`\`\``
+        : formatCodexStatusUnavailableNote(
+          end.isErr() ? end.error : start?.isErr() ? start.error : undefined,
+        );
+      if (note) {
+        const updated = `${last.content}\n${note}`;
+        if (updated.length <= DISCORD.MAX_MESSAGE_LENGTH) {
+          await last.edit(updated).catch((error) =>
+            logUnexpectedError("UsageNote", error)
+          );
+        } else {
+          for (const chunk of chunkDiscordContent(note)) {
+            await sendThreadMessage(thread, chunk);
+          }
+        }
+      }
+    }
+
+    if (
+      isFirstUserMessage && message.content.trim() &&
+      replyContent !== MESSAGES.INTERRUPTED
+    ) {
       try {
         const threadInfo = await workspaceManager.loadThreadInfo(threadId);
         const workerState = await workspaceManager.loadWorkerState(threadId);

@@ -250,7 +250,7 @@ export class Worker implements IWorker {
       if (onReaction) await onReaction("⚙️").catch(() => {});
       await this.reportProgress(onProgress, "🤖 Codexが処理を開始しました...");
       if (this.abortController.signal.aborted) {
-        return ok("⛔ Codex実行を中断しました。");
+        return ok(MESSAGES.INTERRUPTED);
       }
       const execution = this.codexExecutor.executeStreaming(
         this.buildExecutionOptions(message, attachments, true, questionAnswer),
@@ -350,7 +350,7 @@ export class Worker implements IWorker {
       );
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
-        return ok("⛔ Codex実行を中断しました。");
+        return ok(MESSAGES.INTERRUPTED);
       }
       const logPath = await this.saveRawCodexOutput(
         allOutput,
@@ -626,7 +626,7 @@ export class Worker implements IWorker {
     }
 
     if (onProgress) {
-      await onProgress("⛔ Codex実行を中断しました。");
+      await onProgress(MESSAGES.INTERRUPTED);
     }
     return true;
   }
